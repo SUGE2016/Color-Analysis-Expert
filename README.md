@@ -61,6 +61,40 @@ src/
 └── assets/               # 静态资源
 ```
 
+## 仓库结构（Monorepo）
+
+| 目录 | 说明 |
+|------|------|
+| `/`（根目录） | React 前端 |
+| `backend/` | Spring Boot API + `color-analysis-python` 算法服务 |
+
+本地后端需 **MySQL 8**、**Java 17**、**Python 3.8+**；Spring Boot 默认 `8080`，Python 算法服务 `5000`。详见 `backend/README.md`。
+
+## Docker Compose 启动（推荐）
+
+```bash
+cp .env.docker.example .env
+docker compose up --build
+```
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| 前端 | http://localhost:3000 | 开发热更新 |
+| API | http://localhost:8080 | Spring Boot |
+| Swagger | http://localhost:8080/swagger-ui/index.html | API 文档 |
+| MySQL | localhost:3306 | 库名 `color_analysis`，默认密码见 `.env` |
+
+默认账号：`admin` / `admin123`（首次启动由后端自动创建）。
+
+生产静态前端（nginx 反代 `/api`）：
+
+```bash
+docker compose --profile prod up --build
+# 访问 http://localhost:8088
+```
+
+构建使用清华 pip / npmmirror npm / 阿里云 Maven 镜像，可在 `.env` 中覆盖。
+
 ## 快速开始
 
 ### 安装依赖
