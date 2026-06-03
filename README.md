@@ -66,7 +66,8 @@ src/
 | 目录 | 说明 |
 |------|------|
 | `/`（根目录） | React 前端 |
-| `backend/` | Spring Boot API + `color-analysis-python` 算法服务 |
+| `backend/` | Spring Boot API（Java） |
+| `algorithm-service/` | Python 图像算法服务（Flask :5000） |
 
 本地后端需 **MySQL 8**、**Java 17**、**Python 3.8+**；Spring Boot 默认 `8080`，Python 算法服务 `5000`。详见 `backend/README.md`。
 

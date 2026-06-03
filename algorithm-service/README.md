@@ -1,3 +1,12 @@
+# algorithm-service（Python 图像算法）
+
+本目录为 Monorepo 根目录下的 **Flask 算法微服务**（默认 `:5000`），与 `backend/`（Spring Boot）平级，由 API 通过 HTTP 调用。
+
+本地启动：`pip install -r requirements.txt && python app_http.py`  
+Docker：`docker compose up python`（服务名 `python`）
+
+---
+
 # Color Analysis in Coloring Images
 #  图像处理流程说明（以数据集zb为例）
 

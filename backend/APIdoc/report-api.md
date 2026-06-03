@@ -24,7 +24,7 @@
 与项目分析模块联动文件：
 
 - `src/main/java/com/coloranalysisbackend/service/ProjectAnalysisService.java`
-- `color-analysis-python/app_http.py`
+- `algorithm-service/app_http.py`
 
 ## 接口列表
 

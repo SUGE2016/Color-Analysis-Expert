@@ -28,13 +28,13 @@
 
 ### Python 侧
 
-- `color-analysis-python/app_http.py`（统一 HTTP 算法入口）
-- `color-analysis-python/algo/image_correction.py`
-- `color-analysis-python/algo/all_hsv.py`
-- `color-analysis-python/algo/entropy_region.py`
-- `color-analysis-python/algo/main_color.py`
-- `color-analysis-python/algo/main_color_number.py`
-- `color-analysis-python/algo/edge_color.py`
+- `algorithm-service/app_http.py`（统一 HTTP 算法入口）
+- `algorithm-service/algo/image_correction.py`
+- `algorithm-service/algo/all_hsv.py`
+- `algorithm-service/algo/entropy_region.py`
+- `algorithm-service/algo/main_color.py`
+- `algorithm-service/algo/main_color_number.py`
+- `algorithm-service/algo/edge_color.py`
 
 ---
 
@@ -109,9 +109,9 @@ Request JSON:
     "main_color_number",
     "edge_color"
   ],
-  "modelImagePath": "D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/model_image.jpg",
-  "butterflyJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/butterfly.json",
-  "edgeJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/edge.json",
+  "modelImagePath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/model_image.jpg",
+  "butterflyJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/butterfly.json",
+  "edgeJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/edge.json",
   "notes": "首次跑全流程"
 }
 ```

@@ -248,7 +248,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"steps\": [\"correction\", \"hsv\", \"entropy\", \"main_color\", \"main_color_number\"],\n  \"modelImagePath\": \"D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/model_image.jpg\",\n  \"butterflyJsonPath\": \"D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/butterfly.json\",\n  \"edgeJsonPath\": \"D:/OperationBasepoint/ColorAnalysis-backend/color-analysis-python/edge.json\",\n  \"notes\": \"run from APIfox\"\n}",
+              "raw": "{\n  \"steps\": [\"correction\", \"hsv\", \"entropy\", \"main_color\", \"main_color_number\"],\n  \"modelImagePath\": \"algorithm-service/model_image.jpg\",\n  \"butterflyJsonPath\": \"algorithm-service/butterfly.json\",\n  \"edgeJsonPath\": \"algorithm-service/edge.json\",\n  \"notes\": \"run from APIfox\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/api/projects/{{projectId}}/run"

@@ -6,7 +6,7 @@
 
 * `PythonClientService.java` - 调用外部 Python 服务的客户端封装
 * `ImageController.java` - 暴露 REST API
-* `color-analysis-python/app_http.py` - Python HTTP 服务定义
+* `algorithm-service/app_http.py` - Python HTTP 服务定义
 
 
 ## 1. Canny 多边形检测

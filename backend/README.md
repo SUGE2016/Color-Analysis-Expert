@@ -101,16 +101,7 @@ ColorAnalysis-backend/
 │       └── ReportService.java
 ├── src/main/resources/
 │   ├── application.properties                    # 应用配置
-│   └── static/                                   # 静态资源
-├── color-analysis-python/                        # Python 算法服务
-│   ├── app_http.py                               # Flask 应用
-│   ├── algo/                                     # 算法模块
-│   │   ├── canny.py
-│   │   ├── image_correction.py
-│   │   ├── all_hsv.py
-│   │   └── ...
-│   ├── requirements.txt                          # Python 依赖
-│   └── sql/schema.sql                            # 数据库建表脚本
+│   └── db/init/schema_patch.sql
 ├── docs/                                         # 项目文档
 ├── pom.xml                                        # Maven 配置
 └── README.md                                      # 项目说明
@@ -137,7 +128,7 @@ ColorAnalysis-backend/
 2. 运行建表脚本：
 
    - 打开 Navicat 或其他 MySQL 客户端
-   - 执行 `color-analysis-python/sql/schema.sql`
+   - 执行 `algorithm-service/sql/schema.sql`（Docker 使用 `docker/mysql/init/01-schema.sql`）
 3. 修改 `src/main/resources/application.properties` 中的数据库配置：
 
    ```properties
@@ -149,7 +140,7 @@ ColorAnalysis-backend/
 ### 启动 Python 算法服务
 
 ```bash
-cd color-analysis-python
+cd ../algorithm-service
 pip install -r requirements.txt
 python app_http.py
 ```
@@ -159,7 +150,7 @@ python app_http.py
 ### 启动 Spring Boot 后端
 
 ```bash
-cd ..
+# 在 backend/ 目录下
 ./mvnw clean spring-boot:run
 ```
 
