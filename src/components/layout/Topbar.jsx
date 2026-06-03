@@ -18,6 +18,7 @@ import { colors, styles } from "../common/constants";
 import AppLogo from "../common/AppLogo";
 import { APP_NAME } from "../../buildInfo";
 import topbar from "../../styles/topbar.module.css";
+import logoMedia from "../../styles/logo-media.module.css";
 
 // 会话管理常量（与LoginPage保持一致）
 import { clearLogoutTimer, clearSession } from '../../utils/session';
@@ -152,8 +153,8 @@ const Topbar = ({
               {menuExpanded ? <CloseOutlined style={{ fontSize: 16 }} /> : <MenuOutlined style={{ fontSize: 16 }} />}
             </button>
           )}
-          <div className={topbar.logoBox}>
-            <AppLogo />
+          <div className={`${topbar.logoBox} ${logoMedia.clip}`}>
+            <AppLogo className={logoMedia.fill} />
           </div>
           <h1 className={topbar.title}>{title}</h1>
         </div>

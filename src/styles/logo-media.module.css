@@ -1,0 +1,15 @@
+/* Logo 铺满父容器，略放大后由父级 overflow 裁切（类似 object-fit: cover） */
+.fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: scale(1.2);
+  transform-origin: center center;
+}
+
+.clip {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
