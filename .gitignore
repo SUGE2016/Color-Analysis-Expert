@@ -31,3 +31,8 @@ backend/.idea/
 # algorithm-service
 algorithm-service/**/__pycache__/
 algorithm-service/.idea/
+
+# Cursor：仅追踪项目 Skill（.cursor/skills/），其余为本地配置
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
