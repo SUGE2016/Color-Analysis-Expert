@@ -2,6 +2,36 @@ import cv2
 import numpy as np
 import os
 
+# 角点分区按 2047×1465 标定图比例缩放，避免小图硬编码 1700px 漏检
+_REF_W, _REF_H = 2047, 1465
+_LEFT_X_RATIO = 280 / _REF_W
+_TOP_Y_RATIO = 500 / _REF_H
+_RIGHT_X_RATIO = 1700 / _REF_W
+_BOTTOM_Y_RATIO = 1200 / _REF_H
+
+
+def corner_bounds(image_w, image_h):
+    return {
+        "left_x_max": int(_LEFT_X_RATIO * image_w),
+        "top_y_max": int(_TOP_Y_RATIO * image_h),
+        "right_x_min": int(_RIGHT_X_RATIO * image_w),
+        "bottom_y_min": int(_BOTTOM_Y_RATIO * image_h),
+    }
+
+
+def corner_quadrant(center_x, center_y, b, image_w, image_h):
+    x, y = center_x, center_y
+    if 0 <= x <= b["left_x_max"] and 0 <= y <= b["top_y_max"]:
+        return "tl"
+    if 0 <= x <= b["left_x_max"] and b["bottom_y_min"] <= y <= image_h:
+        return "bl"
+    if b["right_x_min"] <= x <= image_w and 0 <= y <= b["top_y_max"]:
+        return "tr"
+    if b["right_x_min"] <= x <= image_w and b["bottom_y_min"] <= y <= image_h:
+        return "br"
+    return None
+
+
 def imread_unicode(image_path):
     """ 读取支持中文路径的图片 """
     image = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -93,46 +123,20 @@ def detect_points(image_path):
         return None
 
     points = []
-
-
-    cv2.imshow("Original", image)  # 原图
-
-    cv2.imshow("Gray", gray)       # 灰度图
-
-    cv2.imshow("Blurred", blurred) # 高斯模糊后的图
-
-    cv2.imshow("Binary", binary)   # 二值化后的图
-
-    cv2.imshow("Cleaned Binary", cleaned_binary)  # 形态学处理后的图
-
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    bounds = corner_bounds(image_w, image_h)
 
     # 遍历轮廓，筛选出可能的矩形定位点
     for contour in contours:
         approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
         if len(approx) == 4:  # 矩形轮廓
             x, y, w, h = cv2.boundingRect(approx)
-            print(x, y, w, h)
             aspect_ratio = float(w) / h
             area = cv2.contourArea(contour)
-            print(area)
             if 0.5 <= aspect_ratio <= 2 and area > 100:  # 面积过滤
                 center_x, center_y = x + w // 2, y + h // 2
-                print(center_x, center_y)
-                # **步骤 4️⃣：按四个区域筛选**
-                if 0 <= center_x <= 280 and 0 <= center_y <= 500:  # 左上角
+                quad = corner_quadrant(center_x, center_y, bounds, image_w, image_h)
+                if quad and (center_x, center_y) not in points:
                     points.append((center_x, center_y))
-                    print('左上角:', center_x, center_y)
-                elif 0 <= center_x <= 280 and 1200 <= center_y <= image_h:  # 左下角
-                    points.append((center_x, center_y))
-                    print('左下角:', center_x, center_y)
-                elif 1700 <= center_x <= image_w and 0 <= center_y <= 500:  # 右上角
-                    points.append((center_x, center_y))
-                    print('右上角:', center_x, center_y)
-                elif 1700 <= center_x <= image_w and 1200 <= center_y <= image_h:  # 右下角
-                    points.append((center_x, center_y))
-                    print('右下角:', center_x, center_y)
 
     if len(points) == 4:
         # **步骤 5️⃣：排序角点**
@@ -166,15 +170,16 @@ def guess_fourth_point(points, image_w, image_h):
     top_right = None
     bottom_right = None
 
-    # 先分类：确定哪些是已知的角点
+    bounds = corner_bounds(image_w, image_h)
     for center_x, center_y in points:
-        if 0 <= center_x <= 280 and 0 <= center_y <= 500:  # 左上角
+        quad = corner_quadrant(center_x, center_y, bounds, image_w, image_h)
+        if quad == "tl":
             top_left = (center_x, center_y)
-        elif 0 <= center_x <= 280 and 1200 <= center_y <= image_h:  # 左下角
+        elif quad == "bl":
             bottom_left = (center_x, center_y)
-        elif 1700 <= center_x <= image_w and 0 <= center_y <= 500:  # 右上角
+        elif quad == "tr":
             top_right = (center_x, center_y)
-        elif 1700 <= center_x <= image_w and 1200 <= center_y <= image_h:  # 右下角
+        elif quad == "br":
             bottom_right = (center_x, center_y)
 
     # 找出缺失的角点，并利用向量公式计算

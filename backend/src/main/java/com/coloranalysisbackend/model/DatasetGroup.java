@@ -1,5 +1,6 @@
 package com.coloranalysisbackend.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -15,4 +16,7 @@ public class DatasetGroup {
     private String name;
 
     private String description;
+
+    @Column(name = "academic_year")
+    private Integer academicYear;
 }

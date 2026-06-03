@@ -5,6 +5,8 @@ import com.coloranalysisbackend.model.Image;
 import com.coloranalysisbackend.service.DatasetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,7 +34,8 @@ public class DatasetController {
                     req.getDescription(),
                     req.getOwnerId(),
                     req.getScene(),
-                    req.getGroupId()
+                    req.getGroupId(),
+                    req.getAcademicYear()
             );
             return ResponseEntity.ok(ds);
         } catch (IllegalArgumentException ex) {
@@ -43,9 +46,10 @@ public class DatasetController {
     @GetMapping
     @Operation(summary = "查询数据集列表")
     public ResponseEntity<?> list(@RequestParam(value = "groupId", required = false) String groupId,
-                                  @RequestParam(value = "scene", required = false) String scene) {
+                                  @RequestParam(value = "scene", required = false) String scene,
+                                  @RequestParam(value = "academicYear", required = false) Integer academicYear) {
         try {
-            return ResponseEntity.ok(datasetService.listDatasets(groupId, scene));
+            return ResponseEntity.ok(datasetService.listDatasets(groupId, scene, academicYear));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -64,9 +68,39 @@ public class DatasetController {
     @PostMapping(value = "/{id}/images/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "上传数据集图片")
     public ResponseEntity<Image> uploadImage(@PathVariable("id") String id,
-                                             @RequestParam("file") MultipartFile file) throws IOException {
-        Image img = datasetService.storeImage(id, file);
+                                             @RequestParam("file") MultipartFile file,
+                                             @RequestParam(value = "subjectCode", required = false) String subjectCode,
+                                             @RequestParam(value = "label", required = false) String label) throws IOException {
+        Image img = datasetService.storeImage(id, file, subjectCode, label);
         return ResponseEntity.ok(img);
+    }
+
+    @GetMapping("/{id}/images/{imageId}/file")
+    @Operation(summary = "下载数据集内单张图片")
+    public ResponseEntity<Resource> imageFile(@PathVariable("id") String id,
+                                              @PathVariable("imageId") String imageId) throws IOException {
+        Resource resource = datasetService.loadImageResource(id, imageId);
+        if (resource == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Image img = datasetService.getImage(id, imageId);
+        MediaType type = datasetService.guessMediaType(img != null ? img.getFileName() : null);
+        return ResponseEntity.ok()
+                .contentType(type)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + (img != null ? img.getFileName() : "image") + "\"")
+                .body(resource);
+    }
+
+    @PutMapping("/{id}/images/{imageId}")
+    @Operation(summary = "更新图片元数据（subjectCode/label）")
+    public ResponseEntity<?> updateImageMeta(@PathVariable("id") String id,
+                                             @PathVariable("imageId") String imageId,
+                                             @RequestBody ImageMetaRequest req) {
+        try {
+            return ResponseEntity.ok(datasetService.updateImageMeta(id, imageId, req.getSubjectCode(), req.getLabel()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
     }
 
     @GetMapping("/{id}/images")
@@ -81,7 +115,7 @@ public class DatasetController {
                                     @RequestBody CreateRequest req) {
         try {
             Dataset ds = datasetService.updateDataset(id, req.getName(), req.getDescription(),
-                    req.getScene(), req.getGroupId());
+                    req.getScene(), req.getGroupId(), req.getAcademicYear());
             return ResponseEntity.ok(ds);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -121,12 +155,24 @@ public class DatasetController {
         private String ownerId;
         private String scene;
         private String groupId;
+        private Integer academicYear;
 
-        // getters/setters omitted for brevity
         public String getName() {return name;} public void setName(String n){name=n;}
         public String getDescription(){return description;} public void setDescription(String d){description=d;}
         public String getOwnerId(){return ownerId;} public void setOwnerId(String o){ownerId=o;}
         public String getScene(){return scene;} public void setScene(String s){scene=s;}
         public String getGroupId(){return groupId;} public void setGroupId(String g){groupId=g;}
+        public Integer getAcademicYear() { return academicYear; }
+        public void setAcademicYear(Integer academicYear) { this.academicYear = academicYear; }
+    }
+
+    public static class ImageMetaRequest {
+        private String subjectCode;
+        private String label;
+
+        public String getSubjectCode() { return subjectCode; }
+        public void setSubjectCode(String subjectCode) { this.subjectCode = subjectCode; }
+        public String getLabel() { return label; }
+        public void setLabel(String label) { this.label = label; }
     }
 }

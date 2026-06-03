@@ -12,7 +12,7 @@ export const authApi = {
    */
   login: (credentials) => {
     const { username, password } = credentials;
-    return apiClient.post('/auth/login', { username, password });
+    return apiClient.post('/auth/login', { username, password }, { skipAuth: true });
   },
 
   /**
@@ -23,8 +23,10 @@ export const authApi = {
    */
   register: (data) => {
     const { username, password } = data;
-    return apiClient.post('/auth/register', { username, password });
-  }
+    return apiClient.post('/auth/register', { username, password }, { skipAuth: true });
+  },
+
+  me: () => apiClient.get('/auth/me'),
 };
 
 export default authApi;

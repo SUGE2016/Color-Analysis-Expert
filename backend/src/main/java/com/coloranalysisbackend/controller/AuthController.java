@@ -5,8 +5,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+
+import com.coloranalysisbackend.model.User;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -33,10 +37,25 @@ public class AuthController {
     @Operation(summary = "用户登录", description = "使用用户名密码登录并获取JWT")
     public ResponseEntity<?> login(@RequestBody LoginRequest req) {
         try {
-            String token = authService.login(req.getUsername(), req.getPassword());
-            return ResponseEntity.ok(new TokenResponse(token));
+            AuthService.LoginResult result = authService.login(req.getUsername(), req.getPassword());
+            return ResponseEntity.ok(new LoginResponse(result.token(), result.userId(), result.username()));
         } catch (AuthenticationException ex) {
             return ResponseEntity.status(401).body("认证失败");
+        }
+    }
+
+    @GetMapping("/me")
+    @Operation(summary = "当前登录用户")
+    public ResponseEntity<?> me() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            return ResponseEntity.status(401).build();
+        }
+        try {
+            User user = authService.me(auth.getName());
+            return ResponseEntity.ok(new MeResponse(user.getId(), user.getUsername()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
@@ -53,8 +72,16 @@ public class AuthController {
     }
 
     @Data
-    public static class TokenResponse {
+    public static class LoginResponse {
         private final String token;
+        private final String userId;
+        private final String username;
+    }
+
+    @Data
+    public static class MeResponse {
+        private final String userId;
+        private final String username;
     }
 
     @Data

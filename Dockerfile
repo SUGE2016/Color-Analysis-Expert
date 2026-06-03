@@ -14,6 +14,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm config set registry "${NPM_REGISTRY}" && npm ci --legacy-peer-deps
 COPY public ./public
+COPY scripts ./scripts
+COPY build-counter.json ./build-counter.json
 COPY src ./src
 COPY tsconfig.json ./
 RUN npm run build

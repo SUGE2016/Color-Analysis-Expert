@@ -15,11 +15,15 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.MediaType;
 
 @Service
 public class DatasetService {
@@ -56,7 +60,8 @@ public class DatasetService {
                                  String description,
                                  String ownerId,
                                  String scene,
-                                 String groupId) {
+                                 String groupId,
+                                 Integer academicYear) {
         if (scene != null && !scene.isBlank() && !ALLOWED_SCENES.contains(scene)) {
             throw new IllegalArgumentException("scene must be one of: 儿童发展评估、教育研究、精细控制能力评估、色彩认知研究、其他");
         }
@@ -73,6 +78,7 @@ public class DatasetService {
         d.setFileCount(0);
         d.setScene((scene == null || scene.isBlank()) ? null : scene);
         d.setGroupId((groupId == null || groupId.isBlank()) ? null : groupId);
+        d.setAcademicYear(academicYear);
         return datasetRepository.save(d);
     }
 
@@ -80,14 +86,22 @@ public class DatasetService {
         return datasetRepository.findById(id).orElse(null);
     }
 
-    public List<Dataset> listDatasets(String groupId, String scene) {
+    public List<Dataset> listDatasets(String groupId, String scene, Integer academicYear) {
         boolean hasGroup = groupId != null && !groupId.isBlank();
         boolean hasScene = scene != null && !scene.isBlank();
+        boolean hasYear = academicYear != null;
 
         if (hasScene && !ALLOWED_SCENES.contains(scene)) {
             throw new IllegalArgumentException("scene must be one of: 儿童发展评估、教育研究、精细控制能力评估、色彩认知研究、其他");
         }
 
+        if (hasGroup && hasYear) {
+            List<Dataset> list = datasetRepository.findByGroupIdAndAcademicYear(groupId, academicYear);
+            if (hasScene) {
+                return list.stream().filter(d -> scene.equals(d.getScene())).toList();
+            }
+            return list;
+        }
         if (hasGroup && hasScene) {
             return datasetRepository.findByGroupIdAndScene(groupId, scene);
         }
@@ -100,7 +114,7 @@ public class DatasetService {
         return datasetRepository.findAll();
     }
 
-    public DatasetGroup createGroup(String name, String description) {
+    public DatasetGroup createGroup(String name, String description, Integer academicYear) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("group name is required");
         }
@@ -108,10 +122,14 @@ public class DatasetService {
         group.setId(UUID.randomUUID().toString());
         group.setName(name);
         group.setDescription(description);
+        group.setAcademicYear(academicYear);
         return datasetGroupRepository.save(group);
     }
 
-    public List<DatasetGroup> listGroups() {
+    public List<DatasetGroup> listGroups(Integer academicYear) {
+        if (academicYear != null) {
+            return datasetGroupRepository.findByAcademicYear(academicYear);
+        }
         return datasetGroupRepository.findAll();
     }
 
@@ -119,7 +137,7 @@ public class DatasetService {
         return datasetGroupRepository.findById(groupId).orElse(null);
     }
 
-    public Image storeImage(String datasetId, MultipartFile file) throws IOException {
+    public Image storeImage(String datasetId, MultipartFile file, String subjectCode, String label) throws IOException {
         Dataset ds = getDataset(datasetId);
         if (ds == null) {
             throw new IllegalArgumentException("dataset not found");
@@ -139,6 +157,13 @@ public class DatasetService {
         img.setDatasetId(datasetId);
         img.setFileName(filename);
         img.setStorageKey(target.toString());
+        if (subjectCode != null && !subjectCode.isBlank()) {
+            img.setSubjectCode(subjectCode.trim());
+        }
+        if (label != null && !label.isBlank()) {
+            img.setLabel(label.trim());
+        }
+        img.setCapturedAt(LocalDateTime.now());
         img = imageRepository.save(img);
         ds.setFileCount(ds.getFileCount() + 1);
         datasetRepository.save(ds);
@@ -149,8 +174,54 @@ public class DatasetService {
         return imageRepository.findByDatasetId(datasetId);
     }
 
+    public Image getImage(String datasetId, String imageId) {
+        Image img = imageRepository.findById(imageId).orElse(null);
+        if (img == null || !datasetId.equals(img.getDatasetId())) {
+            return null;
+        }
+        return img;
+    }
+
+    public Resource loadImageResource(String datasetId, String imageId) throws IOException {
+        Image img = getImage(datasetId, imageId);
+        if (img == null || img.getStorageKey() == null) {
+            return null;
+        }
+        Path path = Paths.get(img.getStorageKey());
+        if (!Files.exists(path)) {
+            return null;
+        }
+        Resource resource = new UrlResource(path.toUri());
+        if (!resource.exists() || !resource.isReadable()) {
+            return null;
+        }
+        return resource;
+    }
+
+    public MediaType guessMediaType(String fileName) {
+        if (fileName != null && fileName.toLowerCase().endsWith(".png")) {
+            return MediaType.IMAGE_PNG;
+        }
+        return MediaType.IMAGE_JPEG;
+    }
+
+    public Image updateImageMeta(String datasetId, String imageId, String subjectCode, String label) {
+        Image img = imageRepository.findById(imageId)
+                .orElseThrow(() -> new IllegalArgumentException("image not found: " + imageId));
+        if (!datasetId.equals(img.getDatasetId())) {
+            throw new IllegalArgumentException("image does not belong to this dataset");
+        }
+        if (subjectCode != null) {
+            img.setSubjectCode(subjectCode.isBlank() ? null : subjectCode.trim());
+        }
+        if (label != null) {
+            img.setLabel(label.isBlank() ? null : label.trim());
+        }
+        return imageRepository.save(img);
+    }
+
     /** 更新数据集元数据（name/description/scene/groupId 均可选传入） */
-    public Dataset updateDataset(String id, String name, String description, String scene, String groupId) {
+    public Dataset updateDataset(String id, String name, String description, String scene, String groupId, Integer academicYear) {
         Dataset d = datasetRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + id));
 
@@ -171,6 +242,9 @@ public class DatasetService {
                 throw new IllegalArgumentException("dataset group not found");
             }
             d.setGroupId(groupId.isBlank() ? null : groupId);
+        }
+        if (academicYear != null) {
+            d.setAcademicYear(academicYear);
         }
         return datasetRepository.save(d);
     }
@@ -194,7 +268,7 @@ public class DatasetService {
     }
 
     /** 更新数据集分组 */
-    public DatasetGroup updateGroup(String id, String name, String description) {
+    public DatasetGroup updateGroup(String id, String name, String description, Integer academicYear) {
         DatasetGroup g = datasetGroupRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("dataset group not found: " + id));
         if (name != null && !name.isBlank()) {
@@ -202,6 +276,9 @@ public class DatasetService {
         }
         if (description != null) {
             g.setDescription(description.isBlank() ? null : description);
+        }
+        if (academicYear != null) {
+            g.setAcademicYear(academicYear);
         }
         return datasetGroupRepository.save(g);
     }

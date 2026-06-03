@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./index.css";
+import "./styles/table-global.css";
 import AppRouter from "./router";
 
 // 挂载到根节点

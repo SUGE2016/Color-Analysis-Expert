@@ -70,12 +70,6 @@ def apply_mask(image, region):
     # **应用掩膜**
     masked_image = cv2.bitwise_and(image, image, mask=final_mask)
 
-    # **显示结果**
-    cv2.imshow("Final Cleaned Mask", final_mask)
-    cv2.imshow("Masked Image", masked_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
     return masked_image, final_mask
 
 

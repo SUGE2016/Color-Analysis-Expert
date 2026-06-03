@@ -4,19 +4,32 @@ import {
   UserOutlined,
   LogoutOutlined,
   EditOutlined,
-  SafetyOutlined,
   LockOutlined,
   CameraOutlined,
   EyeInvisibleOutlined,
-  EyeTwoTone
+  EyeTwoTone,
+  MenuOutlined,
+  CloseOutlined,
+  MailOutlined,
+  PhoneOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { colors, styles } from "../common/constants";
+import AppLogo from "../common/AppLogo";
+import { APP_NAME } from "../../buildInfo";
+import topbar from "../../styles/topbar.module.css";
 
 // 会话管理常量（与LoginPage保持一致）
-const SESSION_KEY = 'user_session';
+import { clearLogoutTimer, clearSession } from '../../utils/session';
 
-const Topbar = ({ title = "涂色心理分析工具", username = "管理员", avatarText = "A" }) => {
+const Topbar = ({
+  title = APP_NAME,
+  username = "管理员",
+  avatarText = "A",
+  showMenuButton = false,
+  onMenuClick,
+  menuExpanded = false,
+}) => {
   const navigate = useNavigate();
   const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
@@ -27,9 +40,10 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
 
   // 处理退出登录
   const handleLogout = () => {
-    localStorage.removeItem(SESSION_KEY);
+    clearLogoutTimer();
+    clearSession();
     message.success('已安全退出登录');
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   // 处理修改个人信息
@@ -55,11 +69,7 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
     passwordForm.resetFields();
     setIsPasswordModalVisible(false);
     
-    // 可选：修改密码后退出登录
-    // setTimeout(() => {
-    //   localStorage.removeItem(SESSION_KEY);
-    //   navigate('/login');
-    // }, 1500);
+    // 可选：修改密码后退出登录并 clearSession()
   };
 
   // 头像上传前检查
@@ -127,58 +137,25 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
     }
   ];
 
-  const topbarStyles = {
-    topbar: {
-      height: 56,
-      background: colors.primary,
-      color: colors.white,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 18px",
-      boxSizing: "border-box",
-      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-    },
-    logoBox: {
-      width: 36,
-      height: 26,
-      background: "rgba(255,255,255,0.25)",
-      borderRadius: styles.borderRadius.sm,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    },
-    title: { fontSize: styles.fontSize.lg, fontWeight: 700, letterSpacing: 0.5 },
-    userSection: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      cursor: 'pointer',
-      padding: '4px 8px',
-      borderRadius: styles.borderRadius.md,
-      transition: 'background-color 0.2s'
-    },
-    avatar: {
-      width: 32,
-      height: 32,
-      borderRadius: "50%",
-      background: "rgba(255,255,255,0.3)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontWeight: 700,
-      color: '#fff'
-    }
-  };
-
   return (
     <>
-      <div style={topbarStyles.topbar}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={topbarStyles.logoBox}>
-            <SafetyOutlined style={{ color: '#fff', fontSize: 16 }} />
+      <div className={topbar.topbar} style={{ background: colors.primary }}>
+        <div className={topbar.brandRow}>
+          {showMenuButton && (
+            <button
+              type="button"
+              className={topbar.menuBtn}
+              aria-label={menuExpanded ? "关闭导航菜单" : "打开导航菜单"}
+              aria-expanded={menuExpanded}
+              onClick={onMenuClick}
+            >
+              {menuExpanded ? <CloseOutlined style={{ fontSize: 16 }} /> : <MenuOutlined style={{ fontSize: 16 }} />}
+            </button>
+          )}
+          <div className={topbar.logoBox}>
+            <AppLogo />
           </div>
-          <div style={topbarStyles.title}>{title}</div>
+          <h1 className={topbar.title}>{title}</h1>
         </div>
 
         <Dropdown
@@ -187,15 +164,9 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
           arrow
           trigger={['click']}
         >
-          <div
-            style={topbarStyles.userSection}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-          >
-            <div style={topbarStyles.avatar}>{avatarText}</div>
-            <div style={{ fontSize: styles.fontSize.sm, opacity: 0.95, fontWeight: 500 }}>
-              {username}
-            </div>
+          <div className={topbar.userSection} role="button" tabIndex={0}>
+            <div className={topbar.avatar}>{avatarText}</div>
+            <span className={topbar.userName}>{username}</span>
           </div>
         </Dropdown>
       </div>
@@ -277,7 +248,7 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
               { type: 'email', message: '请输入有效的邮箱地址' }
             ]}
           >
-            <Input prefix={<SafetyOutlined />} placeholder="请输入邮箱" />
+            <Input prefix={<MailOutlined />} placeholder="请输入邮箱" />
           </Form.Item>
 
           <Form.Item
@@ -288,7 +259,7 @@ const Topbar = ({ title = "涂色心理分析工具", username = "管理员", av
               { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' }
             ]}
           >
-            <Input prefix={<SafetyOutlined />} placeholder="请输入手机号" />
+            <Input prefix={<PhoneOutlined />} placeholder="请输入手机号" />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: 24 }}>

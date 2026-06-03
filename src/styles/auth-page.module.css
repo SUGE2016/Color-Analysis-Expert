@@ -1,0 +1,213 @@
+.page {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.blobTop,
+.blobBottom {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.blobTop {
+  top: -8%;
+  left: -8%;
+  width: min(36vw, 18rem);
+  aspect-ratio: 1;
+  background: rgba(255, 255, 255, 0.1);
+  filter: blur(60px);
+}
+
+.blobBottom {
+  bottom: -8%;
+  right: -8%;
+  width: min(44vw, 22rem);
+  aspect-ratio: 1;
+  background: rgba(255, 255, 255, 0.08);
+  filter: blur(80px);
+}
+
+.card {
+  width: 100%;
+  max-width: 62.5rem;
+  height: 100%;
+  max-height: 100dvh;
+  margin: 0 auto;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+  border: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.card :global(.ant-card-body) {
+  padding: 0 !important;
+  height: 100%;
+}
+
+.layout {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+}
+
+.brand {
+  flex: 1 1 42%;
+  min-width: 0;
+  min-height: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  color: #fff;
+  gap: 0.375rem;
+}
+
+.logo {
+  width: clamp(3rem, 10vw, 4.5rem);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logoImg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brandTitle {
+  color: #fff !important;
+  margin: 0 !important;
+  text-align: center;
+  font-weight: 600;
+  font-size: clamp(1rem, 2.5vw, 1.25rem) !important;
+  line-height: 1.35 !important;
+}
+
+.brandDesc {
+  color: rgba(255, 255, 255, 0.9) !important;
+  text-align: center;
+  font-size: clamp(0.75rem, 1.8vw, 0.8125rem) !important;
+  margin: 0 !important;
+}
+
+.formPanel {
+  flex: 1 1 58%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  background-color: #fff;
+  overflow: hidden;
+}
+
+.formHeader {
+  margin-bottom: clamp(1rem, 2.5vw, 1.5rem);
+  flex-shrink: 0;
+}
+
+.form {
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.form :global(.ant-input-lg),
+.form :global(.ant-btn-lg) {
+  min-height: 2.75rem;
+  border-radius: 0.5rem;
+}
+
+.primaryBtn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  border: none !important;
+  font-weight: 500;
+  box-shadow: 0 0.25rem 0.75rem rgba(102, 126, 234, 0.4);
+}
+
+.footer {
+  margin-top: clamp(0.75rem, 2vw, 1.25rem);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.footerText {
+  font-size: 0.75rem;
+  display: block;
+}
+
+.footerMeta {
+  font-size: 0.6875rem;
+  display: block;
+  margin-top: 0.25rem;
+  opacity: 0.85;
+}
+
+.backBtn {
+  align-self: flex-start;
+  margin-bottom: 0.5rem;
+  padding-left: 0;
+}
+
+@media (max-width: 56.25rem) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .brand,
+  .formPanel {
+    flex: none;
+    width: 100%;
+  }
+
+  .brand {
+    padding: 1.25rem 1rem;
+  }
+
+  .formPanel {
+    padding: 1.25rem 1rem 1rem;
+  }
+}
+
+@media (min-width: 56.25rem) {
+  .page {
+    align-items: center;
+    padding: 0;
+  }
+
+  .card {
+    flex: 0 1 auto;
+    width: min(100%, 62.5rem);
+    height: auto;
+    max-height: min(36rem, 100dvh);
+    border-radius: 1rem;
+    box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
+  }
+
+  .layout {
+    max-height: min(36rem, 100dvh);
+  }
+}

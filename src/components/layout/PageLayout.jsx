@@ -1,138 +1,140 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { colors, styles as stylesConfig } from "../common/constants";
+import {
+  DatabaseOutlined,
+  BarChartOutlined,
+  ToolOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import Topbar from "./Topbar";
+import layout from "../../styles/page-layout.module.css";
+
+const MOBILE_MAX = 767;
+
+/** 菜单文案统一为四字，便于侧栏对齐 */
+const menuItems = [
+  { key: "dataset", label: "数据管理", Icon: DatabaseOutlined, path: "/dataset" },
+  { key: "analysis", label: "项目分析", Icon: BarChartOutlined, path: "/analysis" },
+  { key: "toolbox", label: "工具中心", Icon: ToolOutlined, path: "/toolbox" },
+  { key: "settings", label: "系统设置", Icon: SettingOutlined, path: "/settings" },
+];
+
+function useMobileSidebar() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= MOBILE_MAX
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_MAX}px)`);
+    const onChange = (e) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return isMobile;
+}
 
 export default function PageLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // 侧边栏菜单列表（使用图标 + 文字，更专业）
-  const menuItems = [
-    { key: "dataset", label: "数据集管理", icon: "📁", path: "/dataset" },
-    { key: "analysis", label: "项目分析", icon: "📊", path: "/analysis" },
-    { key: "toolbox", label: "工具箱", icon: "🧰", path: "/toolbox" },
-    { key: "help", label: "帮助", icon: "❓", path: "/help" },
-    { key: "settings", label: "设置", icon: "⚙️", path: "/settings" },
-  ];
+  const isMobile = useMobileSidebar();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // 获取当前激活的菜单key
   const getActiveKey = () => {
     const currentPath = location.pathname;
-    const matchItem = menuItems.find(item => currentPath.includes(item.key));
+    const matchItem = menuItems.find((item) => currentPath.includes(item.key));
     return matchItem?.key || "dataset";
   };
 
   const activeKey = getActiveKey();
 
-  // 清理不需要的样式（已移到 Topbar 组件中）
-  const layoutStyles = {
-    page: {
-      height: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      background: colors.neutral,
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-    },
-    // 主体布局
-    body: { 
-      flex: 1, 
-      display: "flex", 
-      minHeight: 0,
-      overflow: "hidden",
-    },
-    // 现代化侧边栏
-    sidebar: {
-      width: 220,
-      background: colors.white,
-      borderRight: `1px solid ${colors.neutralDark}`,
-      padding: "20px 16px",
-      boxSizing: "border-box",
-      display: "flex",
-      flexDirection: "column",
-      gap: 4,
-    },
-    menuItem: {
-      height: 44,
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
-      padding: "0 16px",
-      borderRadius: stylesConfig.borderRadius.md,
-      color: colors.textSecondary,
-      fontSize: 14,
-      cursor: "pointer",
-      userSelect: "none",
-      transition: stylesConfig.transition,
-      fontWeight: 500,
-    },
-    menuItemHover: {
-      backgroundColor: colors.neutral,
-      color: colors.textPrimary,
-    },
-    menuItemActive: {
-      background: colors.primaryLight,
-      color: colors.primary,
-      fontWeight: 600,
-    },
-    menuIcon: {
-      fontSize: 18,
-      width: 24,
-      textAlign: "center",
-    },
-    // 主内容区
-    mainContent: { 
-      flex: 1, 
-      minHeight: 0,
-      overflow: "auto",
-      background: colors.neutral,
-      padding: 24,
-    },
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), []);
+
+  useEffect(() => {
+    closeSidebar();
+  }, [location.pathname, closeSidebar]);
+
+  useEffect(() => {
+    if (!isMobile) closeSidebar();
+  }, [isMobile, closeSidebar]);
+
+  useEffect(() => {
+    if (!sidebarOpen || !isMobile) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") closeSidebar();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [sidebarOpen, isMobile, closeSidebar]);
+
+  const handleNavigate = (path) => {
+    navigate(path);
+    if (isMobile) closeSidebar();
   };
 
   return (
-    <div style={layoutStyles.page}>
-      {/* 顶部导航栏 - 使用 Topbar 组件 */}
-      <Topbar title="涂色图像分析工具" username="管理员" avatarText="A" />
+    <div className={layout.page}>
+      <Topbar
+        username="管理员"
+        avatarText="A"
+        showMenuButton={isMobile}
+        onMenuClick={toggleSidebar}
+        menuExpanded={sidebarOpen}
+      />
 
-      {/* 主体内容 */}
-      <div style={layoutStyles.body}>
-        {/* 侧边栏菜单 */}
-        <div style={layoutStyles.sidebar}>
+      <div className={layout.body}>
+        {isMobile && sidebarOpen && (
+          <button
+            type="button"
+            className={layout.backdropVisible}
+            aria-label="关闭菜单"
+            onClick={closeSidebar}
+          />
+        )}
+
+        <aside
+          className={`${layout.sidebar} ${isMobile && sidebarOpen ? layout.sidebarOpen : ""}`}
+          aria-hidden={isMobile && !sidebarOpen}
+        >
+          <nav className={layout.sidebarNav} aria-label="主导航">
           {menuItems.map((item) => {
             const isActive = activeKey === item.key;
+            const Icon = item.Icon;
             return (
               <div
                 key={item.key}
-                style={{
-                  ...layoutStyles.menuItem,
-                  ...(isActive ? layoutStyles.menuItemActive : {}),
-                }}
-                onClick={() => navigate(item.path)}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.backgroundColor = colors.neutral;
-                    e.currentTarget.style.color = colors.textPrimary;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.backgroundColor = "transparent";
-                    e.currentTarget.style.color = colors.textSecondary;
+                role="button"
+                tabIndex={0}
+                aria-current={isActive ? "page" : undefined}
+                className={`${layout.menuItem} ${isActive ? layout.menuItemActive : ""}`}
+                onClick={() => handleNavigate(item.path)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleNavigate(item.path);
                   }
                 }}
               >
-                <span style={layoutStyles.menuIcon}>{item.icon}</span>
-                <span>{item.label}</span>
+                <span className={layout.menuIcon} aria-hidden>
+                  <Icon />
+                </span>
+                <span className={layout.menuLabel}>{item.label}</span>
               </div>
             );
           })}
-        </div>
+          </nav>
+        </aside>
 
-        {/* 页面内容出口 */}
-        <div style={layoutStyles.mainContent}>
+        <main className={layout.mainContent}>
           <Outlet />
-        </div>
+        </main>
       </div>
     </div>
   );

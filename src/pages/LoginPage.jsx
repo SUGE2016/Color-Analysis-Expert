@@ -1,50 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, message, Card, Typography, Space } from 'antd';
-import { 
-  EyeOutlined, 
-  EyeInvisibleOutlined, 
-  UserOutlined, 
+import { Form, Input, Button, message, Card, Typography } from 'antd';
+import {
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  UserOutlined,
   LockOutlined,
-  SafetyCertificateOutlined,
   LoginOutlined
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '../api/auth';
+import {
+  saveSession,
+  clearSession,
+  getAuthToken,
+  SESSION_DURATION,
+  scheduleAutoLogout,
+} from '../utils/session';
+import AuthBrand from '../components/auth/AuthBrand';
+import AuthFooter from '../components/auth/AuthFooter';
+import styles from '../styles/auth-page.module.css';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title } = Typography;
 
-// 默认测试账号（仅用于前端开发测试）
-const DEFAULT_CREDENTIALS = {
-  username: 'admin',
-  password: '123456'
-};
-
-// 会话管理常量
 const SESSION_KEY = 'user_session';
-const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24小时有效期
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [form] = Form.useForm();
 
-  // 检查已有会话
   useEffect(() => {
     const session = localStorage.getItem(SESSION_KEY);
-    if (session) {
+    if (session && getAuthToken()) {
       try {
         const parsed = JSON.parse(session);
         if (parsed.expiresAt > Date.now()) {
-          // 会话有效，自动跳转
           navigate('/dataset');
-        } else {
-          // 会话过期，清除存储
-          localStorage.removeItem(SESSION_KEY);
-          message.warning('会话已过期，请重新登录');
+          return;
         }
-      } catch (e) {
-        localStorage.removeItem(SESSION_KEY);
+        clearSession();
+        message.warning('会话已过期，请重新登录');
+      } catch {
+        clearSession();
       }
     }
   }, [navigate]);
@@ -52,247 +51,90 @@ const LoginPage = () => {
   const handleLogin = async (values) => {
     setLoading(true);
     try {
-      // 调用登录API
       const response = await authApi.login({
         username: values.username,
         password: values.password
       });
-      
-      // 假设后端返回格式: { token, userId, username }
-      const session = {
-        token: response.token || `mock_token_${Date.now()}`,
-        userId: response.userId || '1',
-        username: response.username || values.username,
+
+      let userId = response.userId;
+      let username = response.username || values.username;
+      saveSession({
+        token: response.token,
+        userId,
+        username,
         loginTime: new Date().toISOString(),
-        expiresAt: Date.now() + SESSION_DURATION
-      };
-      
-      // 存储会话
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      
-      message.success('登录成功，欢迎回来！');
-      navigate('/dataset');
-    } catch (error) {
-      // 后端未就绪时，使用本地 mock 登录（仅用于开发测试）
-      if (values.username === DEFAULT_CREDENTIALS.username && 
-          values.password === DEFAULT_CREDENTIALS.password) {
-        const session = {
-          token: `mock_token_${Date.now()}`,
-          userId: '1',
-          username: values.username,
-          loginTime: new Date().toISOString(),
-          expiresAt: Date.now() + SESSION_DURATION
-        };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-        message.success('Mock 登录成功（后端未连接）');
-        navigate('/dataset');
-      } else {
-        // 错误已在apiClient拦截器中处理
-        console.error('登录失败:', error);
+        expiresAt: Date.now() + SESSION_DURATION,
+      });
+      if (!userId && response.token) {
+        try {
+          const me = await authApi.me();
+          userId = me.userId;
+          username = me.username || username;
+          saveSession({ userId, username });
+        } catch {
+          /* 旧版仅返回 token */
+        }
       }
+
+      scheduleAutoLogout(() => {
+        clearSession();
+        message.warning('登录已超时，请重新登录');
+        navigate('/login', { replace: true });
+      });
+
+      message.success('登录成功，欢迎回来！');
+      const from = location.state?.from;
+      navigate(from && !from.startsWith('/login') ? from : '/dataset', { replace: true });
+    } catch (error) {
+      clearSession();
+      const status = error?.response?.status;
+      if (status === 401) {
+        message.error('用户名或密码错误。默认账号：admin，密码：admin123');
+      } else if (!error?.response) {
+        message.error('无法连接后端，请确认 color-api 已启动（http://localhost:8080）');
+      }
+      console.error('登录失败:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = () => {
-    navigate('/register');
-  };
-
-  // 填充默认测试账号
-  const fillDefaultCredentials = () => {
-    form.setFieldsValue({
-      username: DEFAULT_CREDENTIALS.username,
-      password: DEFAULT_CREDENTIALS.password
-    });
-    message.info('已填充默认测试账号');
-  };
-
   return (
-    <div style={{
-      width: '100vw',
-      height: '100vh',
-      display: 'flex',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* 背景装饰 */}
-      <div style={{
-        position: 'absolute',
-        top: '-10%',
-        left: '-10%',
-        width: '40%',
-        height: '40%',
-        background: 'rgba(255,255,255,0.1)',
-        borderRadius: '50%',
-        filter: 'blur(60px)'
-      }} />
-      <div style={{
-        position: 'absolute',
-        bottom: '-10%',
-        right: '-10%',
-        width: '50%',
-        height: '50%',
-        background: 'rgba(255,255,255,0.08)',
-        borderRadius: '50%',
-        filter: 'blur(80px)'
-      }} />
+    <div className={styles.page}>
+      <div className={styles.blobTop} aria-hidden />
+      <div className={styles.blobBottom} aria-hidden />
 
-      {/* 登录卡片容器 */}
-      <Card 
-        style={{
-          width: 1000,
-          height: 580,
-          borderRadius: 16,
-          overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-          border: 'none'
-        }}
-        bodyStyle={{ padding: 0, height: '100%' }}
-      >
-        <div style={{ display: 'flex', height: '100%' }}>
-          {/* 左侧：品牌展示区域 */}
-          <div style={{
-            width: '45%',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '48px',
-            color: '#fff',
-            position: 'relative'
-          }}>
-            {/* Logo区域 */}
-            <div style={{
-              width: 80,
-              height: 80,
-              backgroundColor: 'rgba(255,255,255,0.2)',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: 24,
-              backdropFilter: 'blur(10px)'
-            }}>
-              <SafetyCertificateOutlined style={{ fontSize: 40, color: '#fff' }} />
-            </div>
+      <Card className={styles.card}>
+        <div className={styles.layout}>
+          <AuthBrand />
 
-            {/* 标题 */}
-            <Title level={3} style={{ 
-              color: '#fff', 
-              margin: 0,
-              marginBottom: 16,
-              textAlign: 'center',
-              fontWeight: 600
-            }}>
-              涂色图像分析工具
-            </Title>
-
-            <Paragraph style={{ 
-              color: 'rgba(255,255,255,0.9)', 
-              textAlign: 'center',
-              fontSize: 14,
-              marginBottom: 32
-            }}>
-              专业的涂色图像分析工具<br/>
-                      </Paragraph>
-
-            {/* 装饰分隔线 */}
-            <div style={{
-              width: 60,
-              height: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.5)',
-              borderRadius: 2,
-              marginBottom: 32
-            }} />
-
-            {/* 特性列表 */}
-            <Space direction="vertical" size={16} style={{ width: '100%', padding: '0 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{
-                  width: 8,
-                  height: 8,
-                  backgroundColor: '#fff',
-                  borderRadius: '50%'
-                }} />
-                <Text style={{ color: 'rgba(255,255,255,0.9)' }}>智能图像分析</Text>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{
-                  width: 8,
-                  height: 8,
-                  backgroundColor: '#fff',
-                  borderRadius: '50%'
-                }} />
-                <Text style={{ color: 'rgba(255,255,255,0.9)' }}>可视化数据报告</Text>
-              </div>
-            </Space>
-
-            {/* 默认账号提示 */}
-            <div style={{
-              position: 'absolute',
-              bottom: 24,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              textAlign: 'center'
-            }}>
-              <Text style={{ 
-                color: 'rgba(255,255,255,0.6)', 
-                fontSize: 12,
-                cursor: 'pointer'
-              }} onClick={fillDefaultCredentials}>
-                点击此处填充默认测试账号
-              </Text>
-            </div>
-          </div>
-
-          {/* 右侧：登录表单区域 */}
-          <div style={{
-            width: '55%',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            padding: '60px',
-            backgroundColor: '#fff'
-          }}>
-            {/* 登录类型标签 */}
-            <div style={{ marginBottom: 40 }}>
-              <Title level={4} style={{ margin: 0, marginBottom: 8 }}>
+          <section className={styles.formPanel}>
+            <div className={styles.formHeader}>
+              <Title level={4} style={{ margin: 0 }}>
                 <LoginOutlined style={{ marginRight: 8, color: '#667eea' }} />
                 欢迎登录
               </Title>
-              <Text type="secondary">请输入您的账号和密码继续访问</Text>
             </div>
 
-            {/* 登录表单 */}
             <Form
               form={form}
               name="login"
               onFinish={handleLogin}
               autoComplete="off"
-              style={{ width: '100%' }}
+              className={styles.form}
+              initialValues={{ username: 'admin', password: 'admin123' }}
             >
-              {/* 账号输入框 */}
               <Form.Item
                 name="username"
                 rules={[{ required: true, message: '请输入账号' }]}
               >
                 <Input
                   prefix={<UserOutlined style={{ color: '#bfbfbf' }} />}
-                  placeholder="请输入账号"
+                  placeholder="账号（默认 admin）"
                   size="large"
-                  style={{
-                    borderRadius: 8,
-                    height: 48
-                  }}
                 />
               </Form.Item>
 
-              {/* 密码输入框 */}
               <Form.Item
                 name="password"
                 rules={[{ required: true, message: '请输入密码' }]}
@@ -300,85 +142,35 @@ const LoginPage = () => {
                 <Input
                   prefix={<LockOutlined style={{ color: '#bfbfbf' }} />}
                   type={passwordVisible ? 'text' : 'password'}
-                  placeholder="请输入密码"
+                  placeholder="密码（默认 admin123）"
                   size="large"
                   suffix={
-                    <span 
+                    <span
                       onClick={() => setPasswordVisible(!passwordVisible)}
                       style={{ cursor: 'pointer', color: '#999' }}
                     >
                       {passwordVisible ? <EyeOutlined /> : <EyeInvisibleOutlined />}
                     </span>
                   }
-                  style={{
-                    borderRadius: 8,
-                    height: 48
-                  }}
                 />
               </Form.Item>
 
-              {/* 登录按钮 */}
-              <Form.Item style={{ marginBottom: 16 }}>
+              <Form.Item>
                 <Button
                   type="primary"
                   htmlType="submit"
                   size="large"
                   loading={loading}
                   block
-                  style={{
-                    height: 48,
-                    borderRadius: 8,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    border: 'none',
-                    fontSize: 16,
-                    fontWeight: 500,
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)'
-                  }}
+                  className={styles.primaryBtn}
                 >
                   登 录
                 </Button>
               </Form.Item>
-
-              {/* 注册按钮 */}
-              <Form.Item style={{ marginBottom: 16 }}>
-                <Button
-                  size="large"
-                  block
-                  onClick={handleRegister}
-                  style={{
-                    height: 48,
-                    borderRadius: 8,
-                    fontSize: 16,
-                    fontWeight: 500
-                  }}
-                >
-                  注 册
-                </Button>
-              </Form.Item>
-
-              {/* 忘记密码链接 */}
-              <div style={{ textAlign: 'center' }}>
-                <Button 
-                  type="link" 
-                  onClick={() => message.info('忘记密码功能开发中，请联系管理员')}
-                  style={{ fontSize: 13 }}
-                >
-                  忘记密码？
-                </Button>
-              </div>
             </Form>
 
-            {/* 底部版权 */}
-            <div style={{
-              position: 'absolute',
-              bottom: 24,
-              right: 60
-            }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                © 2026 涂色图像分析工具
-              </Text>
-            </div>
-          </div>
+            <AuthFooter />
+          </section>
         </div>
       </Card>
     </div>

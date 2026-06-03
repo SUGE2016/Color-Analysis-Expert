@@ -31,4 +31,7 @@ public class Dataset {
 
     @Column(name = "group_id")
     private String groupId;
+
+    @Column(name = "academic_year")
+    private Integer academicYear;
 }

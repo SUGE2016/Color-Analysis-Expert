@@ -96,6 +96,17 @@ docker compose --profile prod up --build
 
 构建使用清华 pip / npmmirror npm / 阿里云 Maven 镜像，可在 `.env` 中覆盖。
 
+## 测试
+
+- 用例与计划：[`tests/`](tests/)
+- 报告契约：[`tests/contracts/TEST-REPORT-CONTRACT.md`](tests/contracts/TEST-REPORT-CONTRACT.md)
+- 模板：[`tests/templates/`](tests/templates/)
+- Cursor Skill：`.cursor/skills/color-analysis-testing/`（执行测试与撰写摘要/报告）
+
+```bash
+bash tests/scripts/run-p0-p1.sh   # 产出 tests/results/latest-run.txt
+```
+
 ## 快速开始
 
 ### 安装依赖

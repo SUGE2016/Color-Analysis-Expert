@@ -1,7 +1,7 @@
 {
   "name": "front210",
   "version": "0.1.0",
-  "homepage": "https://Yuxin0629.github.io/Coloring_Analysis_Tool",
+  "homepage": ".",
   "private": true,
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -19,6 +19,8 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "prestart": "node scripts/bump-build.js",
+    "prebuild": "node scripts/bump-build.js",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",

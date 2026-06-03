@@ -25,4 +25,13 @@ public class Image {
     private Integer width;
     private Integer height;
     private String md5;
+
+    /** 儿童编号（匿名化标识，用于纵向追踪） */
+    @Column(name = "subject_code")
+    private String subjectCode;
+
+    private String label;
+
+    @Column(name = "captured_at")
+    private java.time.LocalDateTime capturedAt;
 }

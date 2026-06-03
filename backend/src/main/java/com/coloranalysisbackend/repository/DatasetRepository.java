@@ -15,4 +15,6 @@ public interface DatasetRepository extends JpaRepository<Dataset, String> {
 	List<Dataset> findByGroupIdAndScene(String groupId, String scene);
 
 	boolean existsByGroupId(String groupId);
+
+	List<Dataset> findByGroupIdAndAcademicYear(String groupId, Integer academicYear);
 }

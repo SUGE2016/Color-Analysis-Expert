@@ -42,10 +42,20 @@ public class AuthService {
         return user.getId();
     }
 
-    public String login(String username, String password) {
+    public LoginResult login(String username, String password) {
         Authentication auth = authManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
-        return jwtUtil.generateToken(details.getUsername());
+        User user = userRepository.findByUsername(details.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        String token = jwtUtil.generateToken(details.getUsername());
+        return new LoginResult(token, user.getId(), user.getUsername());
     }
+
+    public User me(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+    }
+
+    public record LoginResult(String token, String userId, String username) {}
 }

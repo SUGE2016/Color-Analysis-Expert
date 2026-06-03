@@ -23,7 +23,7 @@ public class DatasetGroupController {
     @Operation(summary = "创建分组")
     public ResponseEntity<?> create(@RequestBody CreateGroupRequest req) {
         try {
-            DatasetGroup group = datasetService.createGroup(req.getName(), req.getDescription());
+            DatasetGroup group = datasetService.createGroup(req.getName(), req.getDescription(), req.getAcademicYear());
             return ResponseEntity.ok(group);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -32,8 +32,9 @@ public class DatasetGroupController {
 
     @GetMapping
     @Operation(summary = "查询分组列表")
-    public ResponseEntity<List<DatasetGroup>> list() {
-        return ResponseEntity.ok(datasetService.listGroups());
+    public ResponseEntity<List<DatasetGroup>> list(
+            @RequestParam(value = "academicYear", required = false) Integer academicYear) {
+        return ResponseEntity.ok(datasetService.listGroups(academicYear));
     }
 
     @GetMapping("/{id}")
@@ -51,7 +52,7 @@ public class DatasetGroupController {
     public ResponseEntity<?> update(@PathVariable("id") String id,
                                     @RequestBody CreateGroupRequest req) {
         try {
-            DatasetGroup group = datasetService.updateGroup(id, req.getName(), req.getDescription());
+            DatasetGroup group = datasetService.updateGroup(id, req.getName(), req.getDescription(), req.getAcademicYear());
             return ResponseEntity.ok(group);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -74,10 +75,13 @@ public class DatasetGroupController {
     public static class CreateGroupRequest {
         private String name;
         private String description;
+        private Integer academicYear;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+        public Integer getAcademicYear() { return academicYear; }
+        public void setAcademicYear(Integer academicYear) { this.academicYear = academicYear; }
     }
 }
