@@ -109,9 +109,9 @@ Request JSON:
     "main_color_number",
     "edge_color"
   ],
-  "modelImagePath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/model_image.jpg",
-  "butterflyJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/butterfly.json",
-  "edgeJsonPath": "D:/OperationBasepoint/ColorAnalysis-backend/algorithm-service/edge.json",
+  "modelImagePath": "algorithm-service/model_image.jpg",
+  "butterflyJsonPath": "algorithm-service/butterfly.json",
+  "edgeJsonPath": "algorithm-service/edge.json",
   "notes": "首次跑全流程"
 }
 ```

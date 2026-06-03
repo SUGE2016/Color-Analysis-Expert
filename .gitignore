@@ -30,3 +30,4 @@ backend/.idea/
 
 # algorithm-service
 algorithm-service/**/__pycache__/
+algorithm-service/.idea/
