@@ -1,0 +1,113 @@
+# 默认：开发模式（热更新前端）
+# 生产静态站：docker compose --profile prod up --build
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: color-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: color_analysis
+      TZ: UTC
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docker/mysql/init/02-dataset-tracking.sql:/docker-entrypoint-initdb.d/02-dataset-tracking.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  python:
+    build:
+      context: ./algorithm-service
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+    container_name: color-python
+    restart: unless-stopped
+    volumes:
+      - api_storage:/app/storage
+      - ./algorithm-service/butterfly_image:/app/butterfly_image:ro
+      - ./algorithm-service/edge_masks:/app/edge_masks:ro
+    expose:
+      - "5000"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: color-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      python:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      PYTHON_SERVICE_URL: http://python:5000
+      STORAGE_BASE_DIR: /app/storage
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - api_storage:/app/storage
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+    container_name: color-frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      PUBLIC_URL: ""
+      REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-http://localhost:8080/api}
+      REACT_APP_UPLOAD_BASE_URL: ${REACT_APP_UPLOAD_BASE_URL:-http://localhost:8080}
+      REACT_APP_DEBUG_API: ${REACT_APP_DEBUG_API:-true}
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      WDS_SOCKET_PORT: "0"
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./package.json:/app/package.json
+      - ./scripts:/app/scripts
+      - ./build-counter.json:/app/build-counter.json
+      - frontend_node_modules:/app/node_modules
+
+  frontend-prod:
+    profiles: [prod]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        REACT_APP_API_BASE_URL: /api
+        REACT_APP_UPLOAD_BASE_URL: ""
+        REACT_APP_DEBUG_API: "false"
+    container_name: color-frontend-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_PROD_PORT:-8088}:80"
+
+volumes:
+  mysql_data:
+  api_storage:
+  frontend_node_modules:

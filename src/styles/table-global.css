@@ -1,0 +1,30 @@
+/* 全局表格：操作列冻结、固定列阴影 */
+
+.app-table-wrap .ant-table-wrapper .ant-table-cell-fix-right {
+  background: #fff;
+  z-index: 2;
+}
+
+.app-table-wrap .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: #fafbfc !important;
+  z-index: 3;
+}
+
+.app-table-wrap .ant-table-wrapper .ant-table-cell-fix-right-first::after {
+  box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.08);
+}
+
+.app-table-action-col {
+  white-space: nowrap;
+}
+
+.app-table-actions-inline {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+}
+
+.app-table-actions-inline :global(.ant-btn-link) {
+  padding-inline: 6px;
+}

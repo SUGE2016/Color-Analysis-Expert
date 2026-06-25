@@ -1,0 +1,18 @@
+meta:
+  run_at: YYYY-MM-DDTHH:MM:SS+08:00
+  environment: docker
+  api_base: http://localhost:8080
+  frontend_base: http://localhost:3000
+  script: tests/scripts/run-p0-p1.sh
+  git_commit: unknown
+
+summary:
+  pass: 0
+  fail: 0
+  skip: 0
+  block: 0
+  total: 0
+
+records:
+SMK-01|PASS|mysql healthy
+SMK-02|PASS|python container running

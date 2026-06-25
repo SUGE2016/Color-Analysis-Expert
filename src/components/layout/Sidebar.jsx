@@ -29,29 +29,12 @@ const Sidebar = ({ activeKey = "analysis" }) => {
     { key: "dataset", label: "📁 数据集管理" },
     { key: "analysis", label: "📊 项目分析" },
     { key: "tool", label: "🧰 工具箱" },
-    { key: "help", label: "❓ 帮助" },
     { key: "setting", label: "⚙️ 设置" },
   ];
 
   return (
     <div style={sidebarStyles.sidebar}>
-      {menuList.map((item) => {
-        if (item.key === "help") {
-          return (
-            <React.Fragment key={item.key}>
-              <div style={{ height: 18 }} />
-              <div
-                style={{
-                  ...sidebarStyles.menuItem,
-                  ...(activeKey === item.key ? sidebarStyles.menuItemActive : {}),
-                }}
-              >
-                {item.label}
-              </div>
-            </React.Fragment>
-          );
-        }
-        return (
+      {menuList.map((item) => (
           <div
             key={item.key}
             style={{
@@ -61,8 +44,7 @@ const Sidebar = ({ activeKey = "analysis" }) => {
           >
             {item.label}
           </div>
-        );
-      })}
+      ))}
     </div>
   );
 };

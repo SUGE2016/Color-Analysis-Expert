@@ -1,0 +1,353 @@
+{
+  "meta": {
+    "project": "蝴蝶涂色",
+    "version": "1.0",
+    "comment": "n/a",
+    "author": "ymRuan"
+  },
+  "regions": [
+    {
+      "id": "01-00-00-00",
+      "alias": "模板图像(框内)",
+      "number": "001",
+      "type": "image",
+      "resource": "butterfly_image/model_image(inside).jpg"
+    },
+    {
+      "id": "00-01-00-00",
+      "alias": "大蝴蝶",
+      "number": "002",
+      "type": "image",
+      "resource": "butterfly_image/00-01-00-00.png"
+    },
+    {
+      "id": "00-02-00-00",
+      "alias": "小蝴蝶",
+      "number": "003",
+      "type": "image",
+      "resource": "butterfly_image/00-02-00-00.png"
+    },
+    {
+      "id": "00-03-00-00",
+      "alias": "大蝴蝶&&小蝴蝶",
+      "number": "004",
+      "type": "image",
+      "resource": "butterfly_image/00-03-00-00.png"
+    },
+    {
+      "id": "00-04-00-00",
+      "alias": "背景",
+      "number": "005",
+      "type": "image",
+      "resource": "butterfly_image/00-04-00-00.png"
+    },
+    {
+      "id": "00-00-01-00",
+      "alias": "大蝴蝶左翅膀",
+      "number": "006",
+      "type": "image",
+      "resource": "butterfly_image/00-00-01-00.png"
+    },
+    {
+      "id": "00-00-01-01",
+      "alias": "大蝴蝶左翅膀_正方形区域",
+      "number": "007",
+      "type": "image",
+      "resource": "butterfly_image/00-00-01-01.png"
+    },
+    {
+      "id": "00-00-01-02",
+      "alias": "大蝴蝶左翅膀_正方形区域以外",
+      "number": "008",
+      "type": "image",
+      "resource": "butterfly_image/00-00-01-02.png"
+    },
+    {
+      "id": "00-00-02-00",
+      "alias": "大蝴蝶右翅膀",
+      "number": "009",
+      "type": "image",
+      "resource": "butterfly_image/00-00-02-00.png"
+    },
+    {
+      "id": "00-00-02-01",
+      "alias": "大蝴蝶右翅膀_正方形区域",
+      "number": "010",
+      "type": "image",
+      "resource": "butterfly_image/00-00-02-01.png"
+    },
+    {
+      "id": "00-00-02-02",
+      "alias": "大蝴蝶右翅膀_正方形区域以外",
+      "number": "011",
+      "type": "image",
+      "resource": "butterfly_image/00-00-02-02.png"
+    },
+    {
+      "id": "00-00-03-00",
+      "alias": "大蝴蝶头",
+      "number": "012",
+      "type": "image",
+      "resource": "butterfly_image/00-00-03-00.png"
+    },
+    {
+      "id": "00-00-04-00",
+      "alias": "大蝴蝶身体",
+      "number": "013",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-00.png"
+    },
+    {
+      "id": "00-00-04-01",
+      "alias": "大蝴蝶身体-1",
+      "number": "014",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-01.png"
+    },
+    {
+      "id": "00-00-04-02",
+      "alias": "大蝴蝶身体-2",
+      "number": "015",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-02.png"
+    },
+    {
+      "id": "00-00-04-03",
+      "alias": "大蝴蝶身体-3",
+      "number": "016",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-03.png"
+    },
+    {
+      "id": "00-00-04-04",
+      "alias": "大蝴蝶身体-4",
+      "number": "017",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-04.png"
+    },
+    {
+      "id": "00-00-04-05",
+      "alias": "大蝴蝶身体-5",
+      "number": "018",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-05.png"
+    },
+    {
+      "id": "00-00-04-06",
+      "alias": "大蝴蝶身体-6",
+      "number": "019",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-05.png"
+    },
+    {
+      "id": "00-00-04-07",
+      "alias": "大蝴蝶身体-7",
+      "number": "020",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-07.png"
+    },
+    {
+      "id": "00-00-04-08",
+      "alias": "大蝴蝶身体-8",
+      "number": "021",
+      "type": "image",
+      "resource": "butterfly_image/00-00-04-08.png"
+    },
+    {
+      "id": "00-00-05-00",
+      "alias": "大蝴蝶左尾巴",
+      "number": "022",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-00.png"
+    },
+    {
+      "id": "00-00-05-01",
+      "alias": "大蝴蝶左尾巴_四个半圆",
+      "number": "023",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-01.png"
+    },
+    {
+      "id": "00-00-05-02",
+      "alias": "大蝴蝶左尾巴_四个半圆外区域",
+      "number": "024",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-02.png"
+    },
+    {
+      "id": "00-00-06-00",
+      "alias": "大蝴蝶右尾巴",
+      "number": "025",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-00.png"
+    },
+    {
+      "id": "00-00-06-01",
+      "alias": "大蝴蝶右尾巴_四个半圆",
+      "number": "026",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-01.png"
+    },
+    {
+      "id": "00-00-06-02",
+      "alias": "大蝴蝶右尾巴_四个半圆外区域",
+      "number": "027",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-02.png"
+    },
+    {
+      "id": "00-00-07-00",
+      "alias": "小蝴蝶头",
+      "number": "028",
+      "type": "image",
+      "resource": "butterfly_image/00-00-07-00.png"
+    },
+    {
+      "id": "00-00-08-00",
+      "alias": "小蝴蝶身体",
+      "number": "029",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-00.png"
+    },
+    {
+      "id": "00-00-08-01",
+      "alias": "小蝴蝶身体-1",
+      "number": "030",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-01.png"
+    },
+    {
+      "id": "00-00-08-02",
+      "alias": "小蝴蝶身体-2",
+      "number": "031",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-02.png"
+    },
+    {
+      "id": "00-00-08-03",
+      "alias": "小蝴蝶身体-3",
+      "number": "032",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-03.png"
+    },
+    {
+      "id": "00-00-08-04",
+      "alias": "小蝴蝶身体-4",
+      "number": "033",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-04.png"
+    },
+    {
+      "id": "00-00-08-05",
+      "alias": "小蝴蝶身体-5",
+      "number": "034",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-05.png"
+    },
+    {
+      "id": "00-00-08-06",
+      "alias": "小蝴蝶身体-6",
+      "number": "035",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-06.png"
+    },
+    {
+      "id": "00-00-08-07",
+      "alias": "小蝴蝶身体-7",
+      "number": "036",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-07.png"
+    },
+    {
+      "id": "00-00-08-08",
+      "alias": "小蝴蝶身体-8",
+      "number": "037",
+      "type": "image",
+      "resource": "butterfly_image/00-00-08-08.png"
+    },
+    {
+      "id": "00-00-09-00",
+      "alias": "小蝴蝶翅膀",
+      "number": "038",
+      "type": "image",
+      "resource": "butterfly_image/00-00-09-00.png"
+    },
+    {
+      "id": "00-00-09-01",
+      "alias": "小蝴蝶翅膀内圈",
+      "number": "039",
+      "type": "image",
+      "resource": "butterfly_image/00-00-09-01.png"
+    },
+    {
+      "id": "00-00-09-02",
+      "alias": "小蝴蝶翅膀外圈",
+      "number": "040",
+      "type": "image",
+      "resource": "butterfly_image/00-00-09-02.png"
+    },
+    {
+      "id": "00-00-10-00",
+      "alias": "小蝴蝶尾巴",
+      "number": "041",
+      "type": "image",
+      "resource": "butterfly_image/00-00-10-00.png"
+    },
+    {
+      "id": "00-00-05-03",
+      "alias": "大蝴蝶左尾巴_半圆1(逆时针)",
+      "number": "042",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-03.png"
+    },
+    {
+      "id": "00-00-05-04",
+      "alias": "大蝴蝶左尾巴_半圆2(逆时针)",
+      "number": "043",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-04.png"
+    },
+    {
+      "id": "00-00-05-05",
+      "alias": "大蝴蝶左尾巴_半圆3(逆时针)",
+      "number": "044",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-05.png"
+    },
+    {
+      "id": "00-00-05-06",
+      "alias": "大蝴蝶左尾巴_半圆4(逆时针)",
+      "number": "045",
+      "type": "image",
+      "resource": "butterfly_image/00-00-05-06.png"
+    },
+    {
+      "id": "00-00-06-03",
+      "alias": "大蝴蝶右尾巴_半圆1(逆时针)",
+      "number": "046",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-03.png"
+    },
+    {
+      "id": "00-00-06-04",
+      "alias": "大蝴蝶右尾巴_半圆2(逆时针)",
+      "number": "047",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-04.png"
+    },
+    {
+      "id": "00-00-06-05",
+      "alias": "大蝴蝶右尾巴_半圆3(逆时针)",
+      "number": "048",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-05.png"
+    },
+    {
+      "id": "00-00-06-06",
+      "alias": "大蝴蝶右尾巴_半圆4(逆时针)",
+      "number": "049",
+      "type": "image",
+      "resource": "butterfly_image/00-00-06-06.png"
+    }
+  ]
+}

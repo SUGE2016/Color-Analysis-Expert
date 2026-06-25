@@ -1,18 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { 
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
   Card, Typography, Button, Table, Tag, Badge,
-  Input, Space, Dropdown, Modal, Form, Upload, Empty, Progress, message
+  Input, Space, Modal, Form, Upload, Empty, Progress, message, Pagination, Spin,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined,
-  EyeOutlined, FileTextOutlined, EditOutlined, MoreOutlined,
+  EyeOutlined, FileTextOutlined, EditOutlined,
   ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  LoadingOutlined, BarChartOutlined, FilterOutlined,
+  LoadingOutlined, BarChartOutlined,
   FileOutlined, UploadOutlined, InfoCircleOutlined,
-  SettingOutlined
+  SettingOutlined, SortAscendingOutlined, SortDescendingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { colors, styles } from '../../components/common/constants';
+import listPage from '../../styles/list-page.module.css';
+import { buildYearFilterOptions, extractAcademicYears } from '../../utils/academicYear';
+import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
+import TableWrap from '../../components/table/TableWrap';
+import { templateApi } from '../../api/template';
+import AuthenticatedImage from '../../components/dataset/AuthenticatedImage';
 
 const { Title, Text } = Typography;
 
@@ -140,30 +146,6 @@ const initialAnalysisProjects = [
   }
 ];
 
-// 模拟分析模板数据
-const initialTemplates = [
-  {
-    id: 1,
-    name: '精细动作能力分析模板',
-    templateImage: '/src/assets/template.png',
-  },
-  {
-    id: 2,
-    name: '色彩认知能力模板',
-    templateImage: '/assets/templates/template2.png',
-  },
-  {
-    id: 3,
-    name: '涂色完成度分析模板',
-    templateImage: '/assets/templates/template3.png',
-  },
-  {
-    id: 4,
-    name: '综合发展评估模板',
-    templateImage: '/assets/templates/template4.png',
-  }
-];
-
 const AnalysisPage = () => {
   const navigate = useNavigate();
   
@@ -174,7 +156,7 @@ const AnalysisPage = () => {
       const incompleteProjects = savedProjects.map(p => ({
         id: p.id,
         name: p.name || '未命名项目',
-        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount || 0), 0) || 0,
+        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0) || 0,
         createTime: p.lastSaved || new Date().toLocaleString(),
         updateTime: p.lastSaved || new Date().toLocaleString(),
         year: new Date().getFullYear(),
@@ -205,13 +187,12 @@ const AnalysisPage = () => {
     return merged;
   });
   
-  const [filteredProjects, setFilteredProjects] = useState(projects);
   const [loading] = useState(false);
 
   // 筛选状态
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [yearFilter, setYearFilter] = useState('all');
+  const [activeYear, setActiveYear] = useState('all');
   const [sortField, setSortField] = useState('createTime');
   const [sortOrder, setSortOrder] = useState('desc');
 
@@ -231,10 +212,11 @@ const AnalysisPage = () => {
   const [currentDetailProject, setCurrentDetailProject] = useState(null);
   
   // 模板管理状态
-  const [templates, setTemplates] = useState(initialTemplates);
+  const [templates, setTemplates] = useState([]);
   const [filteredTemplates, setFilteredTemplates] = useState(templates);
   const [templateSearchValue, setTemplateSearchValue] = useState('');
   const [templateManageModalVisible, setTemplateManageModalVisible] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(false);
   
   // 模板分页
   const [templateCurrentPage, setTemplateCurrentPage] = useState(1);
@@ -269,32 +251,59 @@ const AnalysisPage = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // 筛选和排序逻辑
+  // 获取模板列表
+  const fetchTemplates = useCallback(async () => {
+    setTemplateLoading(true);
+    try {
+      const templateList = await templateApi.getTemplates();
+      setTemplates(templateList || []);
+      setFilteredTemplates(templateList || []);
+    } catch (error) {
+      console.error('获取模板列表失败:', error);
+      message.error('获取模板列表失败');
+    } finally {
+      setTemplateLoading(false);
+    }
+  }, []);
+
+  // 组件加载时获取模板列表
   useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  const availableYears = useMemo(() => extractAcademicYears(projects), [projects]);
+
+  const yearFilterOptions = useMemo(
+    () => buildYearFilterOptions(availableYears),
+    [availableYears]
+  );
+
+  useEffect(() => {
+    if (activeYear !== 'all' && !availableYears.includes(Number(activeYear))) {
+      setActiveYear('all');
+    }
+  }, [activeYear, availableYears]);
+
+  const filteredProjects = useMemo(() => {
     let result = [...projects];
 
-    // 状态筛选
     if (statusFilter !== 'all') {
-      result = result.filter(p => p.status === statusFilter);
+      result = result.filter((p) => p.status === statusFilter);
     }
-
-    // 年份筛选
-    if (yearFilter !== 'all') {
-      result = result.filter(p => p.year === Number(yearFilter));
+    if (activeYear !== 'all') {
+      result = result.filter((p) => p.year === Number(activeYear));
     }
-
-    // 搜索筛选
-    if (searchValue) {
-      const keyword = searchValue.toLowerCase();
-      result = result.filter(p =>
-        p.name.toLowerCase().includes(keyword) ||
-        p.datasetName.toLowerCase().includes(keyword) ||
-        p.creator.toLowerCase().includes(keyword) ||
-        p.description.toLowerCase().includes(keyword)
+    if (searchValue.trim()) {
+      const keyword = searchValue.trim().toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(keyword) ||
+          p.datasetName.toLowerCase().includes(keyword) ||
+          p.creator.toLowerCase().includes(keyword) ||
+          (p.description || '').toLowerCase().includes(keyword)
       );
     }
 
-    // 排序
     result.sort((a, b) => {
       let comparison = 0;
       if (sortField === 'createTime') {
@@ -310,9 +319,26 @@ const AnalysisPage = () => {
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-    setFilteredProjects(result);
-    setCurrentPage(1);
-  }, [projects, statusFilter, yearFilter, searchValue, sortField, sortOrder]);
+    return result;
+  }, [projects, statusFilter, activeYear, searchValue, sortField, sortOrder]);
+
+  const statusCounts = useMemo(
+    () => ({
+      inProgress: projects.filter((p) => p.status === ANALYSIS_STATUS.IN_PROGRESS).length,
+      completed: projects.filter((p) => p.status === ANALYSIS_STATUS.COMPLETED).length,
+      failed: projects.filter((p) => p.status === ANALYSIS_STATUS.FAILED).length,
+    }),
+    [projects]
+  );
+
+  const sortLabel =
+    sortField === 'name'
+      ? '名称'
+      : sortField === 'status'
+        ? '状态'
+        : sortField === 'targetCount'
+          ? '对象数'
+          : '创建时间';
   
   // 模板筛选逻辑
   useEffect(() => {
@@ -491,10 +517,16 @@ const AnalysisPage = () => {
   };
   
   // 确认删除模板
-  const confirmDeleteTemplate = () => {
+  const confirmDeleteTemplate = async () => {
     if (currentTemplate) {
-      setTemplates(templates.filter(t => t.id !== currentTemplate.id));
-      message.success(`模板 "${currentTemplate.name}" 已删除`);
+      try {
+        await templateApi.deleteTemplate(currentTemplate.id);
+        await fetchTemplates();
+        message.success(`模板 "${currentTemplate.name}" 已删除`);
+      } catch (error) {
+        console.error('删除模板失败:', error);
+        message.error(`删除失败: ${error.message || '未知错误'}`);
+      }
     }
     setDeleteTemplateModalVisible(false);
     setCurrentTemplate(null);
@@ -503,21 +535,31 @@ const AnalysisPage = () => {
   // 上传模板
   const handleUploadTemplate = async (values) => {
     setUploading(true);
-    
-    // 模拟上传延迟
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const newTemplate = {
-      id: Date.now(),
-      name: values.name,
-      templateImage: values.templateImage?.fileList?.[0] ? URL.createObjectURL(values.templateImage.fileList[0].originFileObj) : null,
-    };
-    
-    setTemplates([newTemplate, ...templates]);
-    setUploading(false);
-    setUploadModalVisible(false);
-    uploadForm.resetFields();
-    message.success('模板上传成功');
+
+    try {
+      const imageFile = values.templateImage?.[0]?.originFileObj;
+      if (!imageFile) {
+        throw new Error('请选择模板图片');
+      }
+
+      // 调用后端API创建模板
+      await templateApi.createTemplate({
+        name: values.name,
+        imageFile: imageFile
+      });
+
+      // 刷新模板列表
+      await fetchTemplates();
+
+      setUploading(false);
+      setUploadModalVisible(false);
+      uploadForm.resetFields();
+      message.success('模板上传成功');
+    } catch (error) {
+      console.error('上传模板失败:', error);
+      message.error(`上传失败: ${error.message || '未知错误'}`);
+      setUploading(false);
+    }
   };
 
   // 渲染状态标签
@@ -626,55 +668,35 @@ const AnalysisPage = () => {
         <Text type="secondary" style={{ fontSize: 13 }}>{time}</Text>
       )
     },
-    {
-      title: '操作',
-      key: 'action',
-      width: 120,
-      fixed: 'right',
-      render: (_, record) => {
-        const menuItems = [
-          {
-            key: 'view',
-            icon: <EyeOutlined />,
-            label: '查看详情',
-            onClick: () => handleViewDetail(record)
-          },
-          {
-            key: 'report',
-            icon: <FileTextOutlined />,
-            label: '查看报告',
-            disabled: record.status !== ANALYSIS_STATUS.COMPLETED,
-            onClick: () => handleViewReport(record.id)
-          },
-          {
-            key: 'edit',
-            icon: <EditOutlined />,
-            label: record.status === ANALYSIS_STATUS.NOT_STARTED && record.isIncomplete ? '继续编辑' : '重新分析',
-            onClick: () => {
-              if (record.status === ANALYSIS_STATUS.NOT_STARTED && record.isIncomplete) {
-                handleEdit(record);
-              } else {
-                handleRestartAnalysis(record);
-              }
+    buildActionColumn({
+      width: 240,
+      actions: [
+        { key: 'view', label: '详情', icon: <EyeOutlined />, onClick: handleViewDetail, pinned: true },
+        {
+          key: 'report',
+          label: '报告',
+          icon: <FileTextOutlined />,
+          pinned: true,
+          disabled: (r) => r.status !== ANALYSIS_STATUS.COMPLETED,
+          onClick: (r) => handleViewReport(r.id),
+        },
+        {
+          key: 'edit',
+          icon: <EditOutlined />,
+          label: (r) =>
+            r.status === ANALYSIS_STATUS.NOT_STARTED && r.isIncomplete ? '编辑' : '分析',
+          onClick: (r) => {
+            if (r.status === ANALYSIS_STATUS.NOT_STARTED && r.isIncomplete) {
+              handleEdit(r);
+            } else {
+              handleRestartAnalysis(r);
             }
           },
-          { type: 'divider' },
-          {
-            key: 'delete',
-            icon: <DeleteOutlined />,
-            label: '删除',
-            danger: true,
-            onClick: () => handleDelete(record)
-          }
-        ];
-
-        return (
-          <Dropdown menu={{ items: menuItems }} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} />
-          </Dropdown>
-        );
-      }
-    }
+        },
+        { type: 'divider' },
+        { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
+      ],
+    }),
   ];
   
   // 模板表格列定义
@@ -692,13 +714,13 @@ const AnalysisPage = () => {
     },
     {
       title: '模板照片',
-      dataIndex: 'templateImage',
-      key: 'templateImage',
+      dataIndex: 'templateImageKey',
+      key: 'templateImageKey',
       width: 120,
-      render: (image) => (
-        <div style={{ 
-          width: 80, 
-          height: 80, 
+      render: (imageKey, record) => (
+        <div style={{
+          width: 80,
+          height: 80,
           background: colors.neutralLight,
           borderRadius: 4,
           display: 'flex',
@@ -706,48 +728,35 @@ const AnalysisPage = () => {
           justifyContent: 'center',
           overflow: 'hidden'
         }}>
-          {image ? (
-            <img 
-              src={image} 
+          {record.imageAvailable ? (
+            <AuthenticatedImage
+              url={templateApi.getTemplateImageUrl(record.id)}
               alt="模板"
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'block';
+              }}
             />
-          ) : (
-            <FileOutlined style={{ fontSize: 24, color: colors.textTertiary }} />
-          )}
+          ) : null}
+          <FileOutlined
+            style={{
+              fontSize: 24,
+              color: colors.textTertiary,
+              display: record.imageAvailable ? 'none' : 'block'
+            }}
+          />
         </div>
       )
     },
-    {
-      title: '操作',
-      key: 'action',
-      width: 120,
-      fixed: 'right',
-      render: (_, record) => {
-        const menuItems = [
-          {
-            key: 'view',
-            icon: <InfoCircleOutlined />,
-            label: '查看详情',
-            onClick: () => handleViewTemplateDetail(record)
-          },
-          { type: 'divider' },
-          {
-            key: 'delete',
-            icon: <DeleteOutlined />,
-            label: '删除',
-            danger: true,
-            onClick: () => handleDeleteTemplate(record)
-          }
-        ];
-
-        return (
-          <Dropdown menu={{ items: menuItems }} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} />
-          </Dropdown>
-        );
-      }
-    }
+    buildActionColumn({
+      width: 168,
+      actions: [
+        { key: 'view', label: '详情', icon: <InfoCircleOutlined />, onClick: handleViewTemplateDetail, pinned: true },
+        { type: 'divider' },
+        { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: handleDeleteTemplate },
+      ],
+    }),
   ];
 
   // 表格行选择配置
@@ -757,10 +766,18 @@ const AnalysisPage = () => {
   };
 
   // 分页数据
-  const paginatedData = filteredProjects.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
+  const paginatedData = useMemo(
+    () => filteredProjects.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredProjects, currentPage, pageSize]
   );
+
+  const statusFilterOptions = [
+    { key: 'all', label: '全部' },
+    { key: ANALYSIS_STATUS.NOT_STARTED, label: '未开始' },
+    { key: ANALYSIS_STATUS.IN_PROGRESS, label: '进行中' },
+    { key: ANALYSIS_STATUS.COMPLETED, label: '已完成' },
+    { key: ANALYSIS_STATUS.FAILED, label: '失败' },
+  ];
   
   // 模板分页数据
   const templatePaginatedData = filteredTemplates.slice(
@@ -768,191 +785,154 @@ const AnalysisPage = () => {
     templateCurrentPage * templatePageSize
   );
 
+  if (loading && projects.length === 0) {
+    return (
+      <div className={listPage.page} style={{ textAlign: 'center', padding: 80 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: '100%', height: '100%', padding: '0 24px 24px' }}>
-      {/* 页面标题 */}
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <BarChartOutlined style={{ fontSize: 24, color: colors.primary }} />
-        <Title level={4} style={{ margin: 0, color: colors.textPrimary }}>
-          历史分析项目
-        </Title>
-        <Text type="secondary">共 {filteredProjects.length} 个项目</Text>
+    <div className={listPage.page}>
+      <header className={listPage.header}>
+        <div className={listPage.headerMain}>
+          <div className={listPage.titleRow}>
+            <Title level={4} className={listPage.pageTitle}>
+              <BarChartOutlined style={{ color: colors.primary }} />
+              历史分析项目
+            </Title>
+            <span className={listPage.pageMeta}>
+              共 {filteredProjects.length} 个项目 · 进行中 {statusCounts.inProgress} · 已完成{' '}
+              {statusCounts.completed} · 失败 {statusCounts.failed}
+            </span>
+          </div>
+        </div>
+        <div className={listPage.headerActions}>
+          <Input
+            className={listPage.searchInput}
+            placeholder="搜索项目、数据集、创建人…"
+            prefix={<SearchOutlined style={{ color: colors.textTertiary }} />}
+            value={searchValue}
+            onChange={(e) => {
+              setSearchValue(e.target.value);
+              setCurrentPage(1);
+            }}
+            allowClear
+          />
+          <Button icon={<SettingOutlined />} onClick={() => setTemplateManageModalVisible(true)}>
+            模板管理
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            新建分析
+          </Button>
+        </div>
+      </header>
+
+      <div className={listPage.filterBar}>
+        <span className={listPage.filterLabel}>学年</span>
+        {yearFilterOptions.map((item) => {
+          const active = activeYear === item.toString();
+          return (
+            <Tag
+              key={item}
+              className={`${listPage.yearChip} ${active ? listPage.yearChipActive : listPage.yearChipIdle}`}
+              onClick={() => {
+                setActiveYear(item.toString());
+                setCurrentPage(1);
+              }}
+            >
+              {item === 'all' ? '全部' : `${item}年`}
+            </Tag>
+          );
+        })}
+        {availableYears.length === 0 && (
+          <span className={listPage.filterMeta}>暂无学年数据</span>
+        )}
+        <span className={listPage.filterLabel}>状态</span>
+        {statusFilterOptions.map(({ key, label }) => {
+          const active = statusFilter === key;
+          return (
+            <Tag
+              key={key}
+              className={`${listPage.yearChip} ${active ? listPage.yearChipActive : listPage.yearChipIdle}`}
+              onClick={() => {
+                setStatusFilter(key);
+                setCurrentPage(1);
+              }}
+            >
+              {label}
+            </Tag>
+          );
+        })}
+        <div className={listPage.sortGroup}>
+          <Button
+            size="small"
+            icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+            onClick={() => handleSort(sortField)}
+          >
+            {sortLabel}
+          </Button>
+          {selectedProjects.length > 0 && (
+            <>
+              <span className={listPage.selectionHint}>已选 {selectedProjects.length} 项</span>
+              <Button danger size="small" icon={<DeleteOutlined />} onClick={handleBatchDelete}>
+                批量删除
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* 筛选工具栏 */}
-      <Card
-        style={{ marginBottom: 20, borderRadius: styles.borderRadius.md }}
-        bodyStyle={{ padding: '16px 24px' }}
-      >
-        <Space size={16} wrap style={{ width: '100%', justifyContent: 'space-between' }}>
-          {/* 左侧筛选器 */}
-          <Space size={12} wrap>
-            {/* 年份筛选 */}
-            <Space>
-              <FilterOutlined style={{ color: colors.textSecondary }} />
-              <Text type="secondary">年份:</Text>
-              {['all', 2025, 2024, 2023].map(year => (
-                <Tag
-                  key={year}
-                  onClick={() => setYearFilter(year.toString())}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '4px 12px',
-                    borderRadius: styles.borderRadius.md,
-                    border: 'none',
-                    backgroundColor: yearFilter === year.toString() ? colors.primaryLight : colors.neutralLight,
-                    color: yearFilter === year.toString() ? colors.primary : colors.textSecondary,
-                    fontSize: 13
-                  }}
-                >
-                  {year === 'all' ? '全部' : `${year}年`}
-                </Tag>
-              ))}
-            </Space>
-
-            {/* 状态筛选 */}
-            <Space style={{ marginLeft: 16 }}>
-              <Text type="secondary">状态:</Text>
-              {[
-                { key: 'all', label: '全部' },
-                { key: ANALYSIS_STATUS.NOT_STARTED, label: '未开始' },
-                { key: ANALYSIS_STATUS.IN_PROGRESS, label: '进行中' },
-                { key: ANALYSIS_STATUS.COMPLETED, label: '已完成' },
-                { key: ANALYSIS_STATUS.FAILED, label: '失败' }
-              ].map(({ key, label }) => (
-                <Tag
-                  key={key}
-                  onClick={() => setStatusFilter(key)}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '4px 12px',
-                    borderRadius: styles.borderRadius.md,
-                    border: 'none',
-                    backgroundColor: statusFilter === key ? colors.primaryLight : colors.neutralLight,
-                    color: statusFilter === key ? colors.primary : colors.textSecondary,
-                    fontSize: 13
-                  }}
-                >
-                  {label}
-                </Tag>
-              ))}
-            </Space>
-          </Space>
-
-          {/* 右侧搜索和操作 */}
-          <Space size={12}>
-            <Input
-              placeholder="搜索项目名称、数据集、创建人..."
-              prefix={<SearchOutlined style={{ color: colors.textTertiary }} />}
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-              style={{ width: 280, borderRadius: styles.borderRadius.md }}
-              allowClear
-            />
-            <Button
-              icon={<SettingOutlined />}
-              onClick={() => setTemplateManageModalVisible(true)}
-              style={{ borderRadius: styles.borderRadius.md }}
-            >
-              分析模板管理
-            </Button>
-            {selectedProjects.length > 0 && (
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleBatchDelete}
-              >
-                批量删除 ({selectedProjects.length})
-              </Button>
-            )}
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleCreate}
-              style={{ backgroundColor: colors.primary, borderRadius: styles.borderRadius.md }}
-            >
-              新建分析
-            </Button>
-          </Space>
-        </Space>
-      </Card>
-
-      {/* 统计概览 */}
-      <Card
-        style={{ marginBottom: 20, borderRadius: styles.borderRadius.md }}
-        bodyStyle={{ padding: '16px 24px' }}
-      >
-        <Space size={48}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 13 }}>总项目数</Text>
-            <div style={{ fontSize: 24, fontWeight: 600, color: colors.textPrimary }}>
-              {projects.length}
-            </div>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 13 }}>进行中</Text>
-            <div style={{ fontSize: 24, fontWeight: 600, color: colors.primary }}>
-              {projects.filter(p => p.status === ANALYSIS_STATUS.IN_PROGRESS).length}
-            </div>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 13 }}>已完成</Text>
-            <div style={{ fontSize: 24, fontWeight: 600, color: colors.success }}>
-              {projects.filter(p => p.status === ANALYSIS_STATUS.COMPLETED).length}
-            </div>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 13 }}>失败</Text>
-            <div style={{ fontSize: 24, fontWeight: 600, color: colors.danger }}>
-              {projects.filter(p => p.status === ANALYSIS_STATUS.FAILED).length}
-            </div>
-          </div>
-        </Space>
-      </Card>
-
-      {/* 项目列表 */}
-      <Card
-        style={{ borderRadius: styles.borderRadius.lg }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Table
-          rowSelection={rowSelection}
-          columns={columns}
-          dataSource={paginatedData}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize: pageSize,
-            total: filteredProjects.length,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 个项目`,
-            pageSizeOptions: [10, 20, 50],
-            onChange: (page, size) => {
-              setCurrentPage(page);
-              setPageSize(size);
-            }
-          }}
-          locale={{
-            emptyText: (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <div>
-                    <Text style={{ color: colors.textSecondary }}>暂无分析项目</Text>
-                    <div style={{ marginTop: 16 }}>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                        创建新项目
-                      </Button>
+      <TableWrap>
+        <Card className={listPage.tableCard}>
+          <Table
+            rowSelection={rowSelection}
+            columns={columns}
+            dataSource={paginatedData}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+            size="middle"
+            scroll={{ x: TABLE_SCROLL_X }}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={
+                    <div>
+                      <Text type="secondary">暂无分析项目</Text>
+                      <div style={{ marginTop: 12 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+                          新建分析
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                }
-              />
-            )
-          }}
-        />
-      </Card>
+                  }
+                />
+              ),
+            }}
+          />
+          <div className={listPage.tableFooter}>
+            <span className={listPage.tableFooterMeta}>
+              本页 {paginatedData.length} 个，合计 {filteredProjects.length} 个项目
+            </span>
+            <Pagination
+              current={currentPage}
+              pageSize={pageSize}
+              total={filteredProjects.length}
+              onChange={(p, s) => {
+                setCurrentPage(p);
+                setPageSize(s);
+              }}
+              showSizeChanger
+              showQuickJumper
+              pageSizeOptions={[10, 20, 50]}
+              showTotal={(t) => `共 ${t} 条`}
+            />
+          </div>
+        </Card>
+      </TableWrap>
 
       {/* 删除确认弹窗 */}
       <Modal
@@ -1207,11 +1187,14 @@ const AnalysisPage = () => {
         </Card>
 
         {/* 模板列表 */}
+        <TableWrap className="template-table-wrap">
         <div style={{ padding: '0 24px' }}>
           <Table
             columns={templateColumns}
             dataSource={templatePaginatedData}
             rowKey="id"
+            scroll={{ x: TABLE_SCROLL_X }}
+            loading={templateLoading}
             pagination={{
               current: templateCurrentPage,
               pageSize: templatePageSize,
@@ -1244,6 +1227,7 @@ const AnalysisPage = () => {
             }}
           />
         </div>
+        </TableWrap>
       </Modal>
       
       {/* 模板上传弹窗 */}
@@ -1334,7 +1318,7 @@ const AnalysisPage = () => {
             </div>
             <div style={{ 
               width: 300, 
-              height: 300, 
+              height: 300,
               margin: '0 auto',
               background: colors.neutralLight,
               borderRadius: 8,
@@ -1343,15 +1327,24 @@ const AnalysisPage = () => {
               justifyContent: 'center',
               overflow: 'hidden'
             }}>
-              {currentTemplate.templateImage ? (
-                <img 
-                  src={currentTemplate.templateImage} 
+              {currentTemplate.imageAvailable ? (
+                <AuthenticatedImage
+                  url={templateApi.getTemplateImageUrl(currentTemplate.id)}
                   alt="模板照片"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
                 />
-              ) : (
-                <FileOutlined style={{ fontSize: 64, color: colors.textTertiary }} />
-              )}
+              ) : null}
+              <FileOutlined
+                style={{
+                  fontSize: 64,
+                  color: colors.textTertiary,
+                  display: currentTemplate.imageAvailable ? 'none' : 'block'
+                }}
+              />
             </div>
           </div>
         )}

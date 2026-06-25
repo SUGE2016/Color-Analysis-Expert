@@ -1,12 +1,13 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import AuthSession from "../components/auth/AuthSession";
 import PageLayout from "../components/layout/PageLayout";
 // 登录页面
 import LoginPage from "../pages/LoginPage";
-import RegisterPage from "../pages/RegisterPage";
 // 数据集模块页面
 import GroupListPage from "../pages/dataset/GroupListPage";
 import DatasetListPage from "../pages/dataset/DatasetListPage";
+import DatasetDetailPage from "../pages/dataset/DatasetDetailPage";
 // 分析模块页面
 import AnalysisPage from "../pages/analysis/AnalysisPage";
 import AnalysisCreatePage from "../pages/analysis/AnalysisCreatePage";
@@ -32,10 +33,9 @@ const routesConfig = [
     path: "/login",
     element: <LoginPage />,
   },
-  // 注册页面
   {
     path: "/register",
-    element: <RegisterPage />,
+    element: <Navigate to="/login" replace />,
   },
   // 主布局路由
   {
@@ -44,7 +44,8 @@ const routesConfig = [
     children: [
       // 数据集管理三级路由
       { path: "dataset", element: <GroupListPage /> }, // 分组列表
-      { path: "dataset/group/:groupId", element: <DatasetListPage /> }, // 数据集列表
+      { path: "dataset/group/:groupId", element: <DatasetListPage /> },
+      { path: "dataset/group/:groupId/dataset/:datasetId", element: <DatasetDetailPage /> },
       
       // 分析模块路由
       { path: "analysis", element: <AnalysisPage /> },
@@ -70,6 +71,7 @@ const routesConfig = [
 const AppRouter = () => {
   return (
     <BrowserRouter>
+      <AuthSession>
       <Routes>
         {routesConfig.map((route, index) => (
           <Route
@@ -87,6 +89,7 @@ const AppRouter = () => {
           </Route>
         ))}
       </Routes>
+      </AuthSession>
     </BrowserRouter>
   );
 };

@@ -9,6 +9,8 @@ import {
   FileTextOutlined, EyeOutlined, FilePdfOutlined
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
+import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
+import TableWrap from '../../components/table/TableWrap';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -170,19 +172,8 @@ const GlobalSummaryReportPage = () => {
       title: '图片名称',
       dataIndex: 'name',
       key: 'name',
-      render: (text, record) => (
-        <Space>
-          <Text>{text}</Text>
-          <Button 
-            type="link" 
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => viewImageDetail(record.id)}
-          >
-            查看详情
-          </Button>
-        </Space>
-      )
+      ellipsis: true,
+      render: (text) => <Text>{text}</Text>,
     },
     {
       title: '分析对象',
@@ -203,7 +194,19 @@ const GlobalSummaryReportPage = () => {
           {status === 'completed' ? '已完成' : '分析中'}
         </Tag>
       )
-    }
+    },
+    buildActionColumn({
+      width: 108,
+      actions: [
+        {
+          key: 'view',
+          label: '详情',
+          icon: <EyeOutlined />,
+          onClick: (record) => viewImageDetail(record.id),
+          pinned: true,
+        },
+      ],
+    }),
   ];
 
   return (
@@ -298,14 +301,17 @@ const GlobalSummaryReportPage = () => {
       </Card>
 
       {/* 数据表格 - 简洁汇总 */}
+      <TableWrap>
       <Card title="全局汇总列表">
-        <Table 
+        <Table
           dataSource={globalSummaryData.imageResults}
           columns={columns}
           rowKey="id"
+          scroll={{ x: TABLE_SCROLL_X }}
           pagination={{ pageSize: 10 }}
         />
       </Card>
+      </TableWrap>
 
       <Divider />
 

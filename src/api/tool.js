@@ -13,11 +13,11 @@ export const toolApi = {
    * @returns {Promise} 边缘检测结果
    */
   cannyEdgeDetection: (formData, config = {}) => {
-    const params = new URLSearchParams();
-    if (config.threshold1 !== undefined) params.append('threshold1', config.threshold1);
-    if (config.threshold2 !== undefined) params.append('threshold2', config.threshold2);
-    
-    return uploadClient.post(`/images/canny?${params.toString()}`, formData);
+    if (Object.keys(config).length > 0 && !formData.has('config')) {
+      formData.append('config', JSON.stringify(config));
+    }
+
+    return uploadClient.post('/images/canny', formData, { skipAuth: true });
   },
 
   /**
@@ -26,7 +26,30 @@ export const toolApi = {
    * @returns {Promise} 校正后的图片
    */
   alignImage: (formData) => {
-    return uploadClient.post('/images/correction/align', formData);
+    return uploadClient.post('/images/correction/align', formData, { responseType: 'blob', skipAuth: true });
+  },
+
+  getRegionAtPoint: (imageId, x, y) => {
+    return uploadClient.get(`/images/${imageId}/region/at-point`, {
+      params: { x, y }
+    });
+  },
+
+  getRegions: (imageId) => {
+    return uploadClient.get(`/images/${imageId}/regions`);
+  },
+
+  deleteRegions: (imageId) => {
+    return uploadClient.delete(`/images/${imageId}/regions`);
+  },
+
+  /**
+   * 多边形合并
+   * @param {Array} polygons - 多边形数组，每个多边形是 [{x, y}, ...] 格式
+   * @returns {Promise} 合并后的多边形
+   */
+  mergePolygons: (polygons) => {
+    return uploadClient.post('/images/polygon/merge', { polygons }, { skipAuth: true });
   }
 };
 

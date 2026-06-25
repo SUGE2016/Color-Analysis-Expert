@@ -1,0 +1,11 @@
+node_modules
+build
+.git
+.github
+*.md
+!backend/README.md
+backend/target
+backend/storage
+**/__pycache__
+**/.idea
+.env*.local

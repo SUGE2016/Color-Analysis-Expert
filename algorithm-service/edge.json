@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "project": "蝴蝶涂色",
+    "version": "1.0",
+    "comment": "n/a",
+    "author": "ymRuan"
+  },
+  "regions": [
+    {
+      "id": "00-00-00-01",
+      "alias": "小蝴蝶边缘",
+      "number": "001",
+      "type": "image",
+      "resource": "edge_masks/1.png"
+    },
+    {
+      "id": "00-00-00-02",
+      "alias": "大蝴蝶边缘",
+      "number": "002",
+      "type": "image",
+      "resource": "edge_masks/2.png"
+    },
+    {
+      "id": "00-00-00-03",
+      "alias": "大蝴蝶边缘&小蝴蝶边缘",
+      "number": "003",
+      "type": "image",
+      "resource": "edge_masks/3.png"
+    },
+    {
+      "id": "00-00-00-04",
+      "alias": "背景",
+      "number": "004",
+      "type": "image",
+      "resource": "edge_masks/4.png"
+    }
+  ]
+}
