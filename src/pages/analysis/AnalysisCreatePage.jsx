@@ -10,11 +10,10 @@ import {
   PictureOutlined, SettingOutlined,
   FileImageOutlined, AimOutlined, BgColorsOutlined, FolderOpenOutlined,
   LayoutOutlined, AreaChartOutlined, AppstoreOutlined,
-  ExperimentOutlined, PlayCircleOutlined
+  ExperimentOutlined, PlayCircleOutlined, FileOutlined
 } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { colors, styles } from '../../components/common/constants';
-import templateImage from '../../assets/template.png';
 import { pointInPolygon } from '../../utils/hitTest';
 
 // API imports
@@ -22,6 +21,7 @@ import { datasetApi } from '../../api/dataset';
 import { templateApi } from '../../api/template';
 import { analysisApi } from '../../api/analysis';
 import { toolApi } from '../../api/tool';
+import AuthenticatedImage from '../../components/dataset/AuthenticatedImage';
 
 const { Title, Text } = Typography;
 
@@ -54,6 +54,7 @@ const AnalysisCreatePage = () => {
   // 使用真实API获取数据集和模板列表
   // 数据集和模板的加载状态
   const [backendDatasets, setBackendDatasets] = useState([]);
+  const [datasetPreviewImages, setDatasetPreviewImages] = useState({});
   const [datasetsLoading, setDatasetsLoading] = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [backendTemplates, setBackendTemplates] = useState([]);
@@ -66,9 +67,20 @@ const AnalysisCreatePage = () => {
     try {
       const datasets = await datasetApi.getDatasets();
       setBackendDatasets(datasets || []);
+      const previews = {};
+      await Promise.all((datasets || []).map(async (dataset) => {
+        try {
+          const images = await datasetApi.getDatasetImages(dataset.id);
+          if (images?.[0]?.id) previews[dataset.id] = images[0];
+        } catch {
+          previews[dataset.id] = null;
+        }
+      }));
+      setDatasetPreviewImages(previews);
     } catch (error) {
       message.error('获取数据集失败');
       setBackendDatasets([]);
+      setDatasetPreviewImages({});
     } finally {
       setDatasetsLoading(false);
     }
@@ -85,7 +97,8 @@ const AnalysisCreatePage = () => {
         setTemplateImages(templates.map(t => ({
           id: t.id,
           name: t.name,
-          templateImage: t.templateImage || templateImage
+          templateImageKey: t.templateImageKey,
+          imageAvailable: t.imageAvailable
         })));
       }
     } catch (error) {
@@ -149,10 +162,15 @@ const AnalysisCreatePage = () => {
 
   // ==================== 步骤控制 ====================
 
+  // 生成唯一ID
+  const generateUniqueId = useCallback(() => {
+    return `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }, []);
+
   // 保存项目到本地存储（用于中途退出后恢复）
   const saveProjectToStorage = useCallback(() => {
     const projectData = {
-      id: projectId || `temp-${Date.now()}`,
+      id: projectId || generateUniqueId(),
       name: projectName,
       description: projectDescription,
       currentStep,
@@ -164,19 +182,19 @@ const AnalysisCreatePage = () => {
       imageAnalysisConfig,
       lastSaved: new Date().toISOString()
     };
-    
+
     const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
     const existingIndex = savedProjects.findIndex(p => p.id === projectData.id);
-    
+
     if (existingIndex >= 0) {
       savedProjects[existingIndex] = projectData;
     } else {
       savedProjects.push(projectData);
     }
-    
+
     localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(savedProjects));
     return projectData.id;
-  }, [projectId, projectName, projectDescription, currentStep, selectedDatasets, selectedTemplateImage, correctionComplete, correctedImages, regions, imageAnalysisConfig]);
+  }, [projectId, projectName, projectDescription, currentStep, selectedDatasets, selectedTemplateImage, correctionComplete, correctedImages, regions, imageAnalysisConfig, generateUniqueId]);
 
   // 从本地存储加载项目
   const loadProjectFromStorage = useCallback((id) => {
@@ -252,7 +270,7 @@ const AnalysisCreatePage = () => {
         const imagesForCorrection = allImages.map((img, idx) => ({
           id: img.id,
           name: img.name,
-          original: img.url,
+          original: datasetApi.imageFileUrl(img.datasetId, img.id),
           corrected: null, // 等待后端返回
           dataset: img.datasetName,
           status: 'pending'
@@ -315,18 +333,26 @@ const AnalysisCreatePage = () => {
   };
 
   const handleTemplateSelect = (template) => {
+    if (!template.imageAvailable) {
+      message.warning('该模板照片不存在，请重新上传模板照片后再使用');
+      return;
+    }
     setSelectedTemplateImage(template);
   };
 
-  const handleUploadTemplate = (file) => {
-    const newTemplate = {
-      id: `tmpl-${Date.now()}`,
-      name: file.name.replace(/\.[^/.]+$/, ''),
-      templateImage: templateImage
-    };
-    setTemplateImages([...templateImages, newTemplate]);
-    setSelectedTemplateImage(newTemplate);
-    message.success('模板图片上传成功');
+  const handleUploadTemplate = async (file) => {
+    try {
+      const newTemplate = await templateApi.createTemplate({
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        imageFile: file
+      });
+      await fetchTemplates();
+      setSelectedTemplateImage(newTemplate);
+      message.success('模板图片上传成功');
+    } catch (error) {
+      console.error('上传模板失败:', error);
+      message.error(`上传失败: ${error.message || '未知错误'}`);
+    }
     return false;
   };
 
@@ -334,24 +360,28 @@ const AnalysisCreatePage = () => {
 
   useEffect(() => {
     if (currentStep === 1 && !correctionComplete && !isCorrecting && selectedDatasets.length > 0) {
-      startCorrection();
+      startBackendCorrection();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
 
+  // eslint-disable-next-line no-unused-vars
   const startCorrection = () => {
     setIsCorrecting(true);
     setCorrectionProgress(0);
-    const totalImages = selectedDatasets.reduce((sum, ds) => sum + ds.imageCount, 0);
+    const totalImages = selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0);
+    const templatePreviewUrl = selectedTemplateImage?.id
+      ? templateApi.getTemplateImageUrl(selectedTemplateImage.id)
+      : '';
     const mockCorrected = [];
     let imgIndex = 1;
     selectedDatasets.forEach(ds => {
-      for (let i = 0; i < Math.min(ds.imageCount, 8); i++) {
+      for (let i = 0; i < Math.min(ds.imageCount ?? ds.fileCount ?? 0, 8); i++) {
         mockCorrected.push({
           id: `corrected-${imgIndex++}`,
           name: `${ds.name}_图片${i + 1}`,
-          original: templateImage,
-          corrected: templateImage,
+          original: templatePreviewUrl,
+          corrected: templatePreviewUrl,
           dataset: ds.name,
           status: 'pending'
         });
@@ -384,14 +414,14 @@ const AnalysisCreatePage = () => {
     setIsCorrecting(true);
     setCorrectionProgress(0);
     
-    const totalImages = selectedDatasets.reduce((sum, ds) => sum + ds.imageCount, 0);
+    const totalImages = selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0);
     message.info('正在发送数据到后端进行矫正...');
     
     try {
       // 准备图片列表用于矫正
       const imagesForCorrection = [];
       selectedDatasets.forEach(ds => {
-        for (let i = 0; i < Math.min(ds.imageCount, 8); i++) {
+        for (let i = 0; i < Math.min(ds.imageCount ?? ds.fileCount ?? 0, 8); i++) {
           imagesForCorrection.push({
             id: `corrected-${i}`,
             name: `${ds.name}_图片${i + 1}`,
@@ -401,6 +431,7 @@ const AnalysisCreatePage = () => {
         }
       });
       setCorrectedImages(imagesForCorrection);
+      setCorrectedImages([]);
       
       // 调用API对每个数据集的图片进行矫正
       let processedCount = 0;
@@ -409,26 +440,40 @@ const AnalysisCreatePage = () => {
         const images = await datasetApi.getDatasetImages(ds.id);
         
         for (const img of images || []) {
+          setCorrectedImages(prev => (
+            prev.some(item => item.id === img.id)
+              ? prev
+              : [...prev, {
+                  id: img.id,
+                  datasetId: ds.id,
+                  name: img.fileName || img.name || img.id,
+                  dataset: ds.name,
+                  status: 'pending',
+                  corrected: null
+                }]
+          ));
           // 创建FormData，包含模板(model)和目标图片(image)
           const formData = new FormData();
-          
-          // 将模板图片URL转换为文件（如果必要）
-          const templateResponse = await fetch(selectedTemplateImage.templateImage);
-          const templateBlob = await templateResponse.blob();
+
+          // 从后端获取模板图片
+          if (!selectedTemplateImage.imageAvailable) {
+            throw new Error('该模板照片不存在，请重新上传模板照片后再使用');
+          }
+          const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
           formData.append('model', templateBlob, 'template.png');
           
           // 将目标图片URL转换为文件
-          const imageResponse = await fetch(img.url);
-          const imageBlob = await imageResponse.blob();
-          formData.append('image', imageBlob, img.name);
+          const imageBlob = await datasetApi.getDatasetImageFile(ds.id, img.id);
+          formData.append('image', imageBlob, img.fileName || img.name || 'image.png');
           
           // 调用对齐API
           const result = await toolApi.alignImage(formData);
+          const correctedUrl = URL.createObjectURL(result instanceof Blob ? result : new Blob([result]));
           
           // 更新矫正后的图片
           setCorrectedImages(prev => prev.map(item => 
-            item.name === `${ds.name}_${img.name}` 
-              ? { ...item, corrected: result.correctedUrl || result.url, status: 'completed' }
+            item.id === img.id
+              ? { ...item, corrected: correctedUrl, status: 'completed' }
               : item
           ));
           
@@ -449,14 +494,31 @@ const AnalysisCreatePage = () => {
   // ==================== 步骤3: 区域定义 ====================
 
   useEffect(() => {
-    if (currentStep === 2 && selectedTemplateImage) {
+    if (currentStep === 2 && selectedTemplateImage?.imageAvailable) {
+      let objectUrl;
+      let cancelled = false;
       const img = new window.Image();
-      img.crossOrigin = 'anonymous';
       img.onload = () => {
+        if (cancelled) return;
         edgeImgRef.current = img;
         setEdgeImgSize({ w: img.naturalWidth, h: img.naturalHeight });
       };
-      img.src = selectedTemplateImage.templateImage;
+      img.onerror = () => {
+        if (!cancelled) setEdgeImgSize(null);
+      };
+      templateApi.getTemplateImage(selectedTemplateImage.id)
+        .then((blob) => {
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(blob);
+          img.src = objectUrl;
+        })
+        .catch(() => {
+          if (!cancelled) setEdgeImgSize(null);
+        });
+      return () => {
+        cancelled = true;
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      };
     }
   }, [currentStep, selectedTemplateImage]);
 
@@ -627,8 +689,7 @@ const AnalysisCreatePage = () => {
     try {
       // 获取模板图片并转换为FormData
       const formData = new FormData();
-      const templateResponse = await fetch(selectedTemplateImage.templateImage);
-      const templateBlob = await templateResponse.blob();
+      const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
       formData.append('file', templateBlob, 'template.png');
       
       // 调用Canny边缘检测API（不配置threshold参数）
@@ -930,7 +991,7 @@ const AnalysisCreatePage = () => {
                 </div>
                 <div style={summaryItemStyle}>
                   <FileImageOutlined style={{ color: colors.success }} />
-                  <Text style={{ fontSize: 13 }}>图片: {selectedDatasets.reduce((sum, ds) => sum + ds.imageCount, 0)} 张</Text>
+                  <Text style={{ fontSize: 13 }}>图片: {selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0)} 张</Text>
                 </div>
                 <div style={summaryItemStyle}>
                   <LayoutOutlined style={{ color: colors.warning }} />
@@ -975,11 +1036,21 @@ const AnalysisCreatePage = () => {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <Checkbox checked={!!isSelected} />
+                      {datasetPreviewImages[dataset.id]?.id ? (
+                        <AuthenticatedImage
+                          datasetId={dataset.id}
+                          imageId={datasetPreviewImages[dataset.id].id}
+                          alt={dataset.name}
+                          style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                        />
+                      ) : (
+                        <FileImageOutlined style={{ fontSize: 28, color: colors.textTertiary, width: 56 }} />
+                      )}
                       <div>
                         <Text style={{ fontSize: 14, fontWeight: 500 }}>{dataset.name}</Text>
                         <div>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            {dataset.imageCount} 张图片 · {dataset.year}
+                            {dataset.imageCount ?? dataset.fileCount ?? 0} 张图片 · {dataset.year ?? dataset.academicYear ?? '-'}
                           </Text>
                         </div>
                       </div>
@@ -1022,11 +1093,20 @@ const AnalysisCreatePage = () => {
                     boxShadow: isSelected ? `0 0 0 2px ${colors.primary}` : styles.shadow.sm,
                   }}
                 >
-                  <img 
-                    src={template.templateImage} 
-                    alt={template.name} 
-                    style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} 
-                  />
+                  {template.imageAvailable ? (
+                    <AuthenticatedImage
+                      url={templateApi.getTemplateImageUrl(template.id)}
+                      alt={template.name}
+                      style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'block';
+                      }}
+                    />
+                  ) : null}
+                  {!template.imageAvailable && (
+                    <FileOutlined style={{ fontSize: 32, color: '#bfbfbf' }} />
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <Text strong style={{ fontSize: 14 }}>{template.name}</Text>
@@ -1041,11 +1121,22 @@ const AnalysisCreatePage = () => {
           {selectedTemplateImage && (
             <div style={{ marginTop: 20, padding: 16, background: colors.neutral, borderRadius: 8 }}>
               <Text strong style={{ fontSize: 13, marginBottom: 12, display: 'block' }}>已选模板预览</Text>
-              <img 
-                src={selectedTemplateImage.templateImage} 
-                alt={selectedTemplateImage.name} 
-                style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }} 
-              />
+              {selectedTemplateImage.imageAvailable ? (
+                <AuthenticatedImage
+                  url={templateApi.getTemplateImageUrl(selectedTemplateImage.id)}
+                  alt={selectedTemplateImage.name}
+                  style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
+                />
+              ) : null}
+              {!selectedTemplateImage.imageAvailable && (
+                <div style={{ width: '100%', height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.neutralLight, borderRadius: 6 }}>
+                  <FileOutlined style={{ fontSize: 48, color: colors.textTertiary }} />
+                </div>
+              )}
               <div style={{ marginTop: 8, textAlign: 'center' }}>
                 <Text strong style={{ fontSize: 13 }}>{selectedTemplateImage.name}</Text>
               </div>
@@ -1094,7 +1185,7 @@ const AnalysisCreatePage = () => {
                 <div style={infoRowStyle}>
                   <Text style={{ fontSize: 13, color: colors.textSecondary }}>图片总数</Text>
                   <Text strong style={{ fontSize: 14 }}>
-                    {selectedDatasets.reduce((sum, ds) => sum + ds.imageCount, 0)}
+                    {selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0)}
                   </Text>
                 </div>
                 <div style={infoRowStyle}>
@@ -1179,11 +1270,17 @@ const AnalysisCreatePage = () => {
                   }}
                 >
                   <div style={{ position: 'relative' }}>
-                    <img 
-                      src={img.corrected} 
-                      alt={img.name} 
-                      style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0' }} 
-                    />
+                    {img.corrected ? (
+                      <img
+                        src={img.corrected}
+                        alt={img.name}
+                        style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0' }}
+                      />
+                    ) : (
+                      <div style={{ width: '100%', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.neutralLight }}>
+                        <FileImageOutlined style={{ fontSize: 32, color: colors.textTertiary }} />
+                      </div>
+                    )}
                     <div style={imageStatusOverlayStyle(img.status === 'completed')}>
                       {img.status === 'completed' ? (
                         <CheckCircleOutlined style={{ color: '#fff', fontSize: 20 }} />
@@ -1443,11 +1540,15 @@ const AnalysisCreatePage = () => {
                     backgroundColor: isSelected ? colors.primaryLight : colors.white,
                   }}
                 >
-                  <img 
-                    src={img.corrected} 
-                    alt={img.name} 
-                    style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6 }} 
-                  />
+                  {img.corrected ? (
+                    <img
+                      src={img.corrected}
+                      alt={img.name}
+                      style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6 }}
+                    />
+                  ) : (
+                    <FileImageOutlined style={{ fontSize: 28, color: colors.textTertiary, width: 56 }} />
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ fontSize: 13, fontWeight: 500 }} ellipsis>{img.name}</Text>
                     <div style={{ marginTop: 4 }}>

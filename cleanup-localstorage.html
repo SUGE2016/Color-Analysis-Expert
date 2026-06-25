@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>清理重复项目</title>
+</head>
+<body>
+    <h1>清理重复项目</h1>
+    <button onclick="cleanup()">清理localStorage中的重复项目</button>
+    <div id="result"></div>
+    <script>
+        function cleanup() {
+            try {
+                const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
+                const originalCount = savedProjects.length;
+                
+                if (savedProjects.length === 0) {
+                    document.getElementById('result').innerHTML = '<p>没有找到未完成的项目</p>';
+                    return;
+                }
+                
+                // 使用Map去重，保留最新的项目
+                const projectMap = new Map();
+                savedProjects.forEach(p => {
+                    if (p.id) {
+                        projectMap.set(p.id, p);
+                    }
+                });
+                
+                const deduplicated = Array.from(projectMap.values());
+                localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(deduplicated));
+                
+                document.getElementById('result').innerHTML = `
+                    <p>清理完成：从 ${originalCount} 个项目减少到 ${deduplicated.length} 个项目</p>
+                    <p>删除了 ${originalCount - deduplicated.length} 个重复项目</p>
+                `;
+            } catch (e) {
+                document.getElementById('result').innerHTML = `<p>清理失败: ${e.message}</p>`;
+                console.error('清理重复项目失败:', e);
+            }
+        }
+    </script>
+</body>
+</html>

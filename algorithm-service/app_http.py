@@ -7,6 +7,7 @@ import json
 from PIL import Image
 import tempfile
 import os
+from shapely.geometry import Polygon
 
 app = Flask(__name__)
 
@@ -59,10 +60,9 @@ def align_image_api():
     try:
         request.files['model'].save(model_tmp.name)
         request.files['image'].save(image_tmp.name)
-        image_correction.align_image(model_tmp.name, image_tmp.name, out_dir)
-        aligned_path = os.path.join(out_dir, os.path.basename(image_tmp.name))
-        if not os.path.exists(aligned_path):
-            return jsonify({'error': 'alignment failed'}), 500
+        aligned_path = image_correction.align_image(model_tmp.name, image_tmp.name, out_dir)
+        if not aligned_path or not os.path.exists(aligned_path):
+            return jsonify({'error': 'alignment failed: cannot detect corner points or write output image'}), 422
         return send_file(aligned_path, mimetype='image/png')
     finally:
         for path in [model_tmp.name, image_tmp.name]:
@@ -163,6 +163,53 @@ def run_pipeline_api():
         output['files']['edgeColorCsv'] = edge_color_csv
 
     return jsonify(output)
+
+
+@app.route('/polygon/merge', methods=['POST'])
+def merge_polygons_api():
+    """使用 Shapely 进行多边形合并"""
+    try:
+        payload = request.get_json(silent=True) or {}
+        polygons = payload.get('polygons', [])
+
+        if not polygons or len(polygons) < 2:
+            return jsonify({'error': 'at least 2 polygons required'}), 400
+
+        # 将前端格式转换为 Shapely Polygon
+        shapely_polygons = []
+        for poly in polygons:
+            # 前端格式: [{x: 0.5, y: 0.3}, ...]
+            coords = [(p['x'], p['y']) for p in poly]
+            # 确保多边形闭合
+            if coords and coords[0] != coords[-1]:
+                coords.append(coords[0])
+            shapely_polygons.append(Polygon(coords))
+
+        # 使用 Shapely 进行合并
+        merged = shapely_polygons[0]
+        for poly in shapely_polygons[1:]:
+            merged = merged.union(poly)
+
+        # 将结果转换回前端格式
+        if merged.geom_type == 'Polygon':
+            result_coords = list(merged.exterior.coords)
+            # 移除闭合点
+            if result_coords and result_coords[0] == result_coords[-1]:
+                result_coords = result_coords[:-1]
+            result = [{'x': x, 'y': y} for x, y in result_coords]
+        elif merged.geom_type == 'MultiPolygon':
+            # 如果结果是多边形集合，取最大的一个
+            largest_poly = max(merged.geoms, key=lambda p: p.area)
+            result_coords = list(largest_poly.exterior.coords)
+            if result_coords and result_coords[0] == result_coords[-1]:
+                result_coords = result_coords[:-1]
+            result = [{'x': x, 'y': y} for x, y in result_coords]
+        else:
+            return jsonify({'error': f'unsupported geometry type: {merged.geom_type}'}), 400
+
+        return jsonify({'polygon': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

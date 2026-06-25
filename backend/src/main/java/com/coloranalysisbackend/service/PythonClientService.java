@@ -67,6 +67,9 @@ public class PythonClientService {
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(BodyInserters.fromMultipartData(body))
                 .retrieve()
+                .onStatus(status -> status.isError(),
+                        response -> response.bodyToMono(String.class)
+                                .map(message -> new IllegalStateException("python alignment failed: " + message)))
                 .bodyToMono(byte[].class)
                 .block();
     }

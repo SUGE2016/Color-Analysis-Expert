@@ -5,9 +5,9 @@ import {
   ScanOutlined, EditOutlined, ClearOutlined, DownloadOutlined,
   UploadOutlined
 } from "@ant-design/icons";
-import { Button, Card, Space, Tag, Typography, message, Row, Col, Upload } from "antd";
+import { Button, Card, Space, Tag, Typography, message, Row, Col, Upload, Modal, Input, Select } from "antd";
 import { pointInPolygon } from "../../utils/hitTest";
-import { mockRegions } from "../../mock/regions";
+import { toolApi } from "../../api/tool";
 import testImage from "../../assets/test-image.svg";
 
 const { Title, Text } = Typography;
@@ -21,14 +21,27 @@ export default function EdgeDetectionPage() {
   // 状态和引用
   const [scale, setScale] = useState(1.0);
   const [regions, setRegions] = useState(initialRegions); // 初始为空，等待后端返回
-  const [selectedRegionId, setSelectedRegionId] = useState(null);
+  const [selectedRegionIds, setSelectedRegionIds] = useState([]); // 改为数组支持多选
   const [isDetecting, setIsDetecting] = useState(false);
   const [hover, setHover] = useState(null);
   const [showOriginal, setShowOriginal] = useState(true);
   const [showRegions, setShowRegions] = useState(true);
   const [hasUploadedImage, setHasUploadedImage] = useState(false);
   
+  // 重命名相关状态
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renamingRegionId, setRenamingRegionId] = useState(null);
+  const [newRegionName, setNewRegionName] = useState("");
+  
+  // 多选和合并相关状态
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [mergeAlgorithm, setMergeAlgorithm] = useState("simple"); // simple | convex | union
+  
+  // 撤销相关状态
+  const [history, setHistory] = useState([]); // 历史记录栈
+  
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   const imgRef = useRef(null);
   const [imgSize, setImgSize] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -46,6 +59,18 @@ export default function EdgeDetectionPage() {
     img.src = testImage;
   }, []);
 
+  // 自动缩放图片以适应容器
+  useEffect(() => {
+    if (!imgSize || !containerRef.current) return;
+    const container = containerRef.current;
+    const containerWidth = container.clientWidth - 32; // padding
+    const containerHeight = container.clientHeight - 32;
+    const scaleX = containerWidth / imgSize.w;
+    const scaleY = containerHeight / imgSize.h;
+    const autoScale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小
+    setScale(autoScale);
+  }, [imgSize]);
+
   // 计算CSS尺寸
   const cssSize = useMemo(() => {
     if (!imgSize) return { w: 0, h: 0 };
@@ -61,6 +86,38 @@ export default function EdgeDetectionPage() {
     return null;
   }, [regions]);
 
+  // 双击重命名处理
+  const handleDoubleClick = (regionId) => {
+    const region = regions.find(r => r.regionId === regionId);
+    if (region) {
+      setRenamingRegionId(regionId);
+      setNewRegionName(region.name);
+      setShowRenameModal(true);
+    }
+  };
+
+  // 确认重命名
+  const confirmRename = () => {
+    if (renamingRegionId && newRegionName.trim()) {
+      setRegions(prev => prev.map(r => 
+        r.regionId === renamingRegionId 
+          ? { ...r, name: newRegionName.trim() }
+          : r
+      ));
+      message.success("区域重命名成功");
+      setShowRenameModal(false);
+      setRenamingRegionId(null);
+      setNewRegionName("");
+    }
+  };
+
+  // 取消重命名
+  const cancelRename = () => {
+    setShowRenameModal(false);
+    setRenamingRegionId(null);
+    setNewRegionName("");
+  };
+
   // 坐标转换
   const canvasToNorm = useCallback((canvasX, canvasY) => {
     if (!imgSize) return { normX: 0, normY: 0 };
@@ -71,9 +128,9 @@ export default function EdgeDetectionPage() {
     return { normX, normY };
   }, [imgSize, scale]);
 
-  // 自动检测边缘 - 模拟后端API调用
-  const performEdgeDetection = useCallback(() => {
-    if (!hasUploadedImage) {
+  // 自动检测边缘 - 调用后端API
+  const performEdgeDetection = useCallback(async () => {
+    if (!hasUploadedImage || !imgRef.current) {
       message.warning("请先上传图片");
       return;
     }
@@ -81,21 +138,37 @@ export default function EdgeDetectionPage() {
     setIsDetecting(true);
     setRegions([]); // 清空现有区域
     
-    // 模拟后端API调用
-    setTimeout(() => {
-      // 模拟后端返回的区域数据（使用 mockRegions）
-      const backendRegions = mockRegions.map(r => ({
-        ...r,
-        color: getRegionColor(r.regionId)
-      }));
+    try {
+      // 将 Canvas 上的图片转换为 Blob
+      const canvas = document.createElement('canvas');
+      canvas.width = imgRef.current.naturalWidth;
+      canvas.height = imgRef.current.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgRef.current, 0, 0);
+      
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      
+      // 构建 FormData
+      const formData = new FormData();
+      formData.append('file', blob, 'image.png');
+      
+      // 调用后端 API
+      const result = await toolApi.cannyEdgeDetection(formData);
+      
+      // 处理后端返回的区域数据
+      const backendRegions = result.regions || [];
       
       setRegions(backendRegions);
-      setIsDetecting(false);
       message.success(`边缘检测完成，发现 ${backendRegions.length} 个区域`);
-    }, 1500);
+    } catch (error) {
+      console.error('边缘检测失败:', error);
+      message.error('边缘检测失败：' + (error.message || '未知错误'));
+    } finally {
+      setIsDetecting(false);
+    }
   }, [hasUploadedImage]);
 
-  // 获取区域颜色
+  // 获取区域颜色（用于手绘区域）
   const getRegionColor = (regionId) => {
     const colors = {
       regionA: "#1890ff",
@@ -136,10 +209,13 @@ export default function EdgeDetectionPage() {
     // 绘制区域
     if (showRegions && regions.length > 0) {
       for (const r of regions) {
-        const isSelected = r.regionId === selectedRegionId;
+        const isSelected = selectedRegionIds.includes(r.regionId);
         const isHover = hover?.hit === r.regionId && !isSelected;
+        const isMultiSelected = isMultiSelectMode && isSelected && selectedRegionIds.length > 1;
 
-        const style = isSelected
+        const style = isMultiSelected
+          ? { stroke: "rgba(255,0,255,0.95)", fill: "rgba(255,0,255,0.22)", lw: 3 }
+          : isSelected
           ? { stroke: "rgba(0,255,255,0.95)", fill: "rgba(0,255,255,0.22)", lw: 3 }
           : isHover
           ? { stroke: "rgba(255,120,0,0.95)", fill: "rgba(255,120,0,0.16)", lw: 2.5 }
@@ -153,7 +229,7 @@ export default function EdgeDetectionPage() {
           const x = center.x * imgSize.w * scale;
           const y = center.y * imgSize.h * scale;
           
-          ctx.fillStyle = isSelected ? "rgba(0,255,255,0.95)" : "rgba(255,120,0,0.95)";
+          ctx.fillStyle = isMultiSelected ? "rgba(255,0,255,0.95)" : (isSelected ? "rgba(0,255,255,0.95)" : "rgba(255,120,0,0.95)");
           ctx.font = "bold 14px system-ui";
           ctx.textAlign = "center";
           ctx.fillText(r.name, x, y - 10);
@@ -194,7 +270,7 @@ export default function EdgeDetectionPage() {
       drawCrosshair(ctx, hover.canvasX, hover.canvasY, cssSize.w, cssSize.h);
       drawDot(ctx, hover.canvasX, hover.canvasY);
     }
-  }, [cssSize, drawingPoints, hover, imgSize, isDrawing, regions, scale, selectedRegionId, showOriginal, showRegions]);
+  }, [cssSize, drawingPoints, hover, imgSize, isDrawing, regions, scale, selectedRegionIds, isMultiSelectMode, showOriginal, showRegions]);
 
   useEffect(() => {
     render();
@@ -214,7 +290,40 @@ export default function EdgeDetectionPage() {
       setDrawingPoints(prev => [...prev, { x: normX, y: normY }]);
     } else {
       const hit = hitTest({ x: normX, y: normY });
-      setSelectedRegionId(hit);
+      
+      if (isMultiSelectMode) {
+        // 多选模式：切换选中状态
+        if (hit) {
+          setSelectedRegionIds(prev => {
+            if (prev.includes(hit)) {
+              return prev.filter(id => id !== hit);
+            } else {
+              return [...prev, hit];
+            }
+          });
+        } else {
+          // 点击空白处清空选择
+          setSelectedRegionIds([]);
+        }
+      } else {
+        // 单选模式：只选中一个
+        setSelectedRegionIds(hit ? [hit] : []);
+      }
+    }
+  };
+
+  // 双击事件处理
+  const handleCanvasDoubleClick = (e) => {
+    if (!imgSize || isDrawing) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    const { normX, normY } = canvasToNorm(canvasX, canvasY);
+    const hit = hitTest({ x: normX, y: normY });
+    
+    if (hit) {
+      handleDoubleClick(hit);
     }
   };
 
@@ -258,11 +367,133 @@ export default function EdgeDetectionPage() {
 
   // 删除选中区域
   const deleteSelectedRegion = () => {
-    if (selectedRegionId) {
-      setRegions(prev => prev.filter(r => r.regionId !== selectedRegionId));
-      setSelectedRegionId(null);
+    if (selectedRegionIds.length > 0) {
+      setRegions(prev => prev.filter(r => !selectedRegionIds.includes(r.regionId)));
+      setSelectedRegionIds([]);
       message.success("区域已删除");
     }
+  };
+
+  // 多边形合并算法（几何合并）
+  const mergePolygons = async (polygons, algorithm) => {
+    if (polygons.length === 0) return [];
+    if (polygons.length === 1) return polygons[0];
+
+    // 使用改进的几何合并算法
+    return await mergePolygonsUnion(polygons);
+  };
+
+  // 几何合并算法：调用后端 API 进行精确合并
+  const mergePolygonsUnion = async (polygons) => {
+    if (polygons.length === 0) return [];
+    if (polygons.length === 1) return polygons[0];
+
+    try {
+      const response = await toolApi.mergePolygons(polygons);
+      if (response.data && response.data.polygon) {
+        return response.data.polygon;
+      }
+      // 如果后端失败，回退到凸包
+      const allPoints = polygons.flatMap(p => p);
+      return computeConvexHull(allPoints);
+    } catch (e) {
+      console.error("Backend merge failed, falling back to convex hull", e);
+      // 如果调用失败，使用凸包作为后备
+      const allPoints = polygons.flatMap(p => p);
+      return computeConvexHull(allPoints);
+    }
+  };
+
+
+  // 凸包算法 (Monotone Chain)
+  const computeConvexHull = (points) => {
+    if (points.length <= 2) return points;
+    
+    // 按 x 坐标排序，x 相同按 y 排序
+    const sorted = [...points].sort((a, b) => {
+      if (a.x !== b.x) return a.x - b.x;
+      return a.y - b.y;
+    });
+    
+    // 叉积计算
+    const crossProduct = (o, a, b) => {
+      return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    };
+    
+    // 构建下凸包
+    const lower = [];
+    for (const p of sorted) {
+      while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+        lower.pop();
+      }
+      lower.push(p);
+    }
+    
+    // 构建上凸包
+    const upper = [];
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const p = sorted[i];
+      while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+        upper.pop();
+      }
+      upper.push(p);
+    }
+    
+    // 合并（去掉重复的起点和终点）
+    upper.pop();
+    lower.pop();
+    return [...lower, ...upper];
+  };
+
+  // 合并选中区域
+  const mergeSelectedRegions = async () => {
+    if (selectedRegionIds.length < 2) {
+      message.warning("请至少选择两个区域进行合并");
+      return;
+    }
+
+    // 保存当前状态到历史记录
+    setHistory(prev => [...prev, regions]);
+
+    const selectedRegions = regions.filter(r => selectedRegionIds.includes(r.regionId));
+    const mergedPolygon = await mergePolygons(selectedRegions.map(r => r.polygon), mergeAlgorithm);
+
+    // 自动生成名称
+    const existingMergeCount = regions.filter(r => r.name.startsWith("合并区域")).length;
+    const newName = `合并区域 ${existingMergeCount + 1}`;
+
+    // 计算合并后的颜色（使用第一个选中区域的颜色）
+    const mergedColor = selectedRegions[0].color || "#1890ff";
+
+    const newRegion = {
+      regionId: `region-${Date.now()}`,
+      name: newName,
+      polygon: mergedPolygon,
+      color: mergedColor
+    };
+
+    // 删除原区域，添加新区域
+    setRegions(prev => [
+      ...prev.filter(r => !selectedRegionIds.includes(r.regionId)),
+      newRegion
+    ]);
+
+    setSelectedRegionIds([]);
+    message.success(`已合并 ${selectedRegionIds.length} 个区域为 "${newName}"`);
+  };
+
+  // 撤销操作
+  const undoMerge = () => {
+    if (history.length === 0) {
+      message.warning("没有可撤销的操作");
+      return;
+    }
+    
+    const previousState = history[history.length - 1];
+    setHistory(prev => prev.slice(0, -1));
+    setRegions(previousState);
+    setSelectedRegionIds([]);
+    message.success("已撤销合并操作");
   };
 
   // 处理图片上传
@@ -302,9 +533,9 @@ export default function EdgeDetectionPage() {
 
   // 获取选中区域
   const selectedRegion = useMemo(() => {
-    if (!selectedRegionId) return null;
-    return regions.find((r) => r.regionId === selectedRegionId) || null;
-  }, [regions, selectedRegionId]);
+    if (selectedRegionIds.length === 0) return null;
+    return regions.find((r) => r.regionId === selectedRegionIds[0]) || null;
+  }, [regions, selectedRegionIds]);
 
   const dpr = window.devicePixelRatio || 1;
 
@@ -380,12 +611,41 @@ export default function EdgeDetectionPage() {
               <Button 
                 icon={<ClearOutlined />}
                 onClick={deleteSelectedRegion}
-                disabled={!selectedRegionId}
+                disabled={selectedRegionIds.length === 0}
                 danger
                 block
               >
                 删除选中区域
               </Button>
+            </Space>
+          </Card>
+
+          <Card title="多选与合并" size="small" style={{ marginBottom: 16 }}>
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Button 
+                onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
+                type={isMultiSelectMode ? "primary" : "default"}
+                block
+              >
+                {isMultiSelectMode ? "退出多选模式" : "进入多选模式"}
+              </Button>
+              {selectedRegionIds.length > 1 && (
+                <Button 
+                  type="primary"
+                  onClick={mergeSelectedRegions}
+                  block
+                >
+                  合并选中区域 ({selectedRegionIds.length})
+                </Button>
+              )}
+              {history.length > 0 && (
+                <Button 
+                  onClick={undoMerge}
+                  block
+                >
+                  撤销合并 ({history.length})
+                </Button>
+              )}
             </Space>
           </Card>
 
@@ -428,7 +688,7 @@ export default function EdgeDetectionPage() {
             }
             style={{ marginBottom: 16 }}
           >
-            <div style={styles.canvasContainer}>
+            <div ref={containerRef} style={styles.canvasContainer}>
               {!hasUploadedImage ? (
                 <div style={styles.emptyState}>
                   <UploadOutlined style={{ fontSize: 48, color: "#ccc" }} />
@@ -440,6 +700,7 @@ export default function EdgeDetectionPage() {
                 <canvas
                   ref={canvasRef}
                   onClick={handleClick}
+                  onDoubleClick={handleCanvasDoubleClick}
                   onMouseMove={handleMove}
                   onMouseLeave={handleLeave}
                   style={{ 
@@ -462,21 +723,39 @@ export default function EdgeDetectionPage() {
               <Text type="secondary">暂无区域，请点击'自动检测边缘'或手动划定区域</Text>
             ) : (
               <Row gutter={[8, 8]}>
-                {regions.map((r) => (
-                  <Col span={8} key={r.regionId}>
-                    <Button
-                      size="small"
-                      type={r.regionId === selectedRegionId ? "primary" : "default"}
-                      onClick={() => setSelectedRegionId(r.regionId)}
-                      style={{ 
-                        width: "100%",
-                        borderLeft: `4px solid ${r.color || "#1890ff"}` 
-                      }}
-                    >
-                      {r.name}
-                    </Button>
-                  </Col>
-                ))}
+                {regions.map((r) => {
+                  const isSelected = selectedRegionIds.includes(r.regionId);
+                  const isMultiSelected = isMultiSelectMode && isSelected && selectedRegionIds.length > 1;
+                  return (
+                    <Col span={8} key={r.regionId}>
+                      <Button
+                        size="small"
+                        type={isMultiSelected ? "default" : (isSelected ? "primary" : "default")}
+                        onClick={() => {
+                          if (isMultiSelectMode) {
+                            setSelectedRegionIds(prev => {
+                              if (prev.includes(r.regionId)) {
+                                return prev.filter(id => id !== r.regionId);
+                              } else {
+                                return [...prev, r.regionId];
+                              }
+                            });
+                          } else {
+                            setSelectedRegionIds([r.regionId]);
+                          }
+                        }}
+                        onDoubleClick={() => handleDoubleClick(r.regionId)}
+                        style={{ 
+                          width: "100%",
+                          borderLeft: `4px solid ${r.color || "#1890ff"}`,
+                          backgroundColor: isMultiSelected ? "rgba(255,0,255,0.1)" : undefined
+                        }}
+                      >
+                        {r.name}
+                      </Button>
+                    </Col>
+                  );
+                })}
               </Row>
             )}
           </Card>
@@ -508,6 +787,24 @@ export default function EdgeDetectionPage() {
           </Card>
         </div>
       </div>
+
+      {/* 重命名对话框 */}
+      <Modal
+        title="重命名区域"
+        open={showRenameModal}
+        onOk={confirmRename}
+        onCancel={cancelRename}
+        okText="确认"
+        cancelText="取消"
+      >
+        <Input
+          value={newRegionName}
+          onChange={(e) => setNewRegionName(e.target.value)}
+          placeholder="请输入新名称"
+          onPressEnter={confirmRename}
+          maxLength={50}
+        />
+      </Modal>
     </div>
   );
 }

@@ -220,7 +220,7 @@ def align_image(model_image_path, colored_image_path, output_folder):
 
     if template_points is None or image_points is None:
         print(f"⚠️ [警告] 无法对齐: {colored_image_path}")
-        return
+        return None
 
     def order_points(pts):
         """ 根据角点的坐标顺序进行排序 """
@@ -248,7 +248,10 @@ def align_image(model_image_path, colored_image_path, output_folder):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     output_path = os.path.join(output_folder, os.path.basename(colored_image_path))
-    cv2.imwrite(output_path, aligned_image)
+    if not cv2.imwrite(output_path, aligned_image):
+        print(f"鉂?[閿欒] 鏃犳硶淇濆瓨瀵归綈鍥剧墖: {output_path}")
+        return None
+    return output_path
     # print(f"✅ [成功] 已保存对齐图片: {output_path}")
 
 

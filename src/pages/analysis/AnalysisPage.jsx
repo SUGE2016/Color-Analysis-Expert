@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Card, Typography, Button, Table, Tag, Badge,
   Input, Space, Modal, Form, Upload, Empty, Progress, message, Pagination, Spin,
@@ -17,6 +17,8 @@ import listPage from '../../styles/list-page.module.css';
 import { buildYearFilterOptions, extractAcademicYears } from '../../utils/academicYear';
 import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
 import TableWrap from '../../components/table/TableWrap';
+import { templateApi } from '../../api/template';
+import AuthenticatedImage from '../../components/dataset/AuthenticatedImage';
 
 const { Title, Text } = Typography;
 
@@ -144,30 +146,6 @@ const initialAnalysisProjects = [
   }
 ];
 
-// 模拟分析模板数据
-const initialTemplates = [
-  {
-    id: 1,
-    name: '精细动作能力分析模板',
-    templateImage: '/src/assets/template.png',
-  },
-  {
-    id: 2,
-    name: '色彩认知能力模板',
-    templateImage: '/assets/templates/template2.png',
-  },
-  {
-    id: 3,
-    name: '涂色完成度分析模板',
-    templateImage: '/assets/templates/template3.png',
-  },
-  {
-    id: 4,
-    name: '综合发展评估模板',
-    templateImage: '/assets/templates/template4.png',
-  }
-];
-
 const AnalysisPage = () => {
   const navigate = useNavigate();
   
@@ -178,7 +156,7 @@ const AnalysisPage = () => {
       const incompleteProjects = savedProjects.map(p => ({
         id: p.id,
         name: p.name || '未命名项目',
-        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount || 0), 0) || 0,
+        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0) || 0,
         createTime: p.lastSaved || new Date().toLocaleString(),
         updateTime: p.lastSaved || new Date().toLocaleString(),
         year: new Date().getFullYear(),
@@ -234,10 +212,11 @@ const AnalysisPage = () => {
   const [currentDetailProject, setCurrentDetailProject] = useState(null);
   
   // 模板管理状态
-  const [templates, setTemplates] = useState(initialTemplates);
+  const [templates, setTemplates] = useState([]);
   const [filteredTemplates, setFilteredTemplates] = useState(templates);
   const [templateSearchValue, setTemplateSearchValue] = useState('');
   const [templateManageModalVisible, setTemplateManageModalVisible] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(false);
   
   // 模板分页
   const [templateCurrentPage, setTemplateCurrentPage] = useState(1);
@@ -271,6 +250,26 @@ const AnalysisPage = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  // 获取模板列表
+  const fetchTemplates = useCallback(async () => {
+    setTemplateLoading(true);
+    try {
+      const templateList = await templateApi.getTemplates();
+      setTemplates(templateList || []);
+      setFilteredTemplates(templateList || []);
+    } catch (error) {
+      console.error('获取模板列表失败:', error);
+      message.error('获取模板列表失败');
+    } finally {
+      setTemplateLoading(false);
+    }
+  }, []);
+
+  // 组件加载时获取模板列表
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
 
   const availableYears = useMemo(() => extractAcademicYears(projects), [projects]);
 
@@ -518,10 +517,16 @@ const AnalysisPage = () => {
   };
   
   // 确认删除模板
-  const confirmDeleteTemplate = () => {
+  const confirmDeleteTemplate = async () => {
     if (currentTemplate) {
-      setTemplates(templates.filter(t => t.id !== currentTemplate.id));
-      message.success(`模板 "${currentTemplate.name}" 已删除`);
+      try {
+        await templateApi.deleteTemplate(currentTemplate.id);
+        await fetchTemplates();
+        message.success(`模板 "${currentTemplate.name}" 已删除`);
+      } catch (error) {
+        console.error('删除模板失败:', error);
+        message.error(`删除失败: ${error.message || '未知错误'}`);
+      }
     }
     setDeleteTemplateModalVisible(false);
     setCurrentTemplate(null);
@@ -530,21 +535,31 @@ const AnalysisPage = () => {
   // 上传模板
   const handleUploadTemplate = async (values) => {
     setUploading(true);
-    
-    // 模拟上传延迟
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const newTemplate = {
-      id: Date.now(),
-      name: values.name,
-      templateImage: values.templateImage?.fileList?.[0] ? URL.createObjectURL(values.templateImage.fileList[0].originFileObj) : null,
-    };
-    
-    setTemplates([newTemplate, ...templates]);
-    setUploading(false);
-    setUploadModalVisible(false);
-    uploadForm.resetFields();
-    message.success('模板上传成功');
+
+    try {
+      const imageFile = values.templateImage?.[0]?.originFileObj;
+      if (!imageFile) {
+        throw new Error('请选择模板图片');
+      }
+
+      // 调用后端API创建模板
+      await templateApi.createTemplate({
+        name: values.name,
+        imageFile: imageFile
+      });
+
+      // 刷新模板列表
+      await fetchTemplates();
+
+      setUploading(false);
+      setUploadModalVisible(false);
+      uploadForm.resetFields();
+      message.success('模板上传成功');
+    } catch (error) {
+      console.error('上传模板失败:', error);
+      message.error(`上传失败: ${error.message || '未知错误'}`);
+      setUploading(false);
+    }
   };
 
   // 渲染状态标签
@@ -699,13 +714,13 @@ const AnalysisPage = () => {
     },
     {
       title: '模板照片',
-      dataIndex: 'templateImage',
-      key: 'templateImage',
+      dataIndex: 'templateImageKey',
+      key: 'templateImageKey',
       width: 120,
-      render: (image) => (
-        <div style={{ 
-          width: 80, 
-          height: 80, 
+      render: (imageKey, record) => (
+        <div style={{
+          width: 80,
+          height: 80,
           background: colors.neutralLight,
           borderRadius: 4,
           display: 'flex',
@@ -713,15 +728,24 @@ const AnalysisPage = () => {
           justifyContent: 'center',
           overflow: 'hidden'
         }}>
-          {image ? (
-            <img 
-              src={image} 
+          {record.imageAvailable ? (
+            <AuthenticatedImage
+              url={templateApi.getTemplateImageUrl(record.id)}
               alt="模板"
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'block';
+              }}
             />
-          ) : (
-            <FileOutlined style={{ fontSize: 24, color: colors.textTertiary }} />
-          )}
+          ) : null}
+          <FileOutlined
+            style={{
+              fontSize: 24,
+              color: colors.textTertiary,
+              display: record.imageAvailable ? 'none' : 'block'
+            }}
+          />
         </div>
       )
     },
@@ -1170,6 +1194,7 @@ const AnalysisPage = () => {
             dataSource={templatePaginatedData}
             rowKey="id"
             scroll={{ x: TABLE_SCROLL_X }}
+            loading={templateLoading}
             pagination={{
               current: templateCurrentPage,
               pageSize: templatePageSize,
@@ -1293,7 +1318,7 @@ const AnalysisPage = () => {
             </div>
             <div style={{ 
               width: 300, 
-              height: 300, 
+              height: 300,
               margin: '0 auto',
               background: colors.neutralLight,
               borderRadius: 8,
@@ -1302,15 +1327,24 @@ const AnalysisPage = () => {
               justifyContent: 'center',
               overflow: 'hidden'
             }}>
-              {currentTemplate.templateImage ? (
-                <img 
-                  src={currentTemplate.templateImage} 
+              {currentTemplate.imageAvailable ? (
+                <AuthenticatedImage
+                  url={templateApi.getTemplateImageUrl(currentTemplate.id)}
                   alt="模板照片"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
                 />
-              ) : (
-                <FileOutlined style={{ fontSize: 64, color: colors.textTertiary }} />
-              )}
+              ) : null}
+              <FileOutlined
+                style={{
+                  fontSize: 64,
+                  color: colors.textTertiary,
+                  display: currentTemplate.imageAvailable ? 'none' : 'block'
+                }}
+              />
             </div>
           </div>
         )}
