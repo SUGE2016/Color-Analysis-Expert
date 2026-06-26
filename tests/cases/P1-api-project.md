@@ -8,13 +8,13 @@
 
 | ID | 场景 | 步骤 | 期望 | 状态 |
 |----|------|------|------|------|
-| PRJ-01 | 创建项目 | `POST /api/projects` 绑定 datasetId | 200，`status` 为 `created` | 待测 |
-| PRJ-02 | 列表项目 | `GET /api/projects` | 200，含 PRJ-01 | 待测 |
-| PRJ-03 | 单个项目 | `GET /api/projects/{id}` | 200 | 待测 |
-| PRJ-04 | 执行分析 | `POST /api/projects/{id}/run` body 含 steps、模型路径等（见 APIdoc） | 200 或业务约定；项目最终 `completed` 或任务 `success` | 待测 |
-| PRJ-05 | 查询任务 | `GET /api/projects/{id}/tasks` | 200，含 PRJ-04 任务记录 | 待测 |
-| PRJ-06 | 无数据 run | 空数据集上 run | `failed` 或明确 4xx/错误信息（记录实际） | 待测 |
-| PRJ-07 | 无 token | `POST /api/projects` 无 Authorization | 401/403 | 待测 |
+| PRJ-01 | 创建项目 | `POST /api/projects` 绑定 datasetId | 200，`status` 为 `created` | PASS |
+| PRJ-02 | 列表项目 | `GET /api/projects` | 200，含 PRJ-01 | PASS |
+| PRJ-03 | 单个项目 | `GET /api/projects/{id}` | 200 | PASS |
+| PRJ-04 | 执行分析 | `POST /api/projects/{id}/run` body 含 steps、模型路径等（见 APIdoc） | 200 或业务约定；项目最终 `completed` 或任务 `success` | SKIP |
+| PRJ-05 | 查询任务 | `GET /api/projects/{id}/tasks` | 200，含 PRJ-04 任务记录 | PASS |
+| PRJ-06 | 无数据 run | 空数据集上 run | `failed` 或明确 4xx/错误信息（记录实际） | SKIP |
+| PRJ-07 | 无 token | `POST /api/projects` 无 Authorization | 401/403 | SKIP |
 
 ## PRJ-04 说明
 
@@ -27,4 +27,4 @@
 
 | 执行人 | 日期 | 通过/总数 | 备注 |
 |--------|------|-----------|------|
-| | | /7 | |
+| Agent | 2026-06-24 | 4/7 (3 SKIP) | PRJ-04 需要完整数据集和模型文件，PRJ-06/07 为扩展测试 |

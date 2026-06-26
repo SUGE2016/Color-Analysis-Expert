@@ -65,7 +65,9 @@ function attachAuthInterceptors(client, { withUploadError = false } = {}) {
             toastErrorOnce(response.data?.message || response.data || '请求参数错误');
             break;
           case 401:
-            handleUnauthorized('登录已过期，请重新登录');
+            if (!error.config?.skipAuth) {
+              handleUnauthorized('登录已过期，请重新登录');
+            }
             break;
           case 403:
             if (!getAuthToken()) {
@@ -107,10 +109,9 @@ attachAuthInterceptors(apiClient);
 const uploadClient = axios.create({
   baseURL: process.env.REACT_APP_UPLOAD_BASE_URL || API_BASE_URL,
   timeout: 120000,
-  headers: { 'Content-Type': 'multipart/form-data' },
 });
 
 attachAuthInterceptors(uploadClient, { withUploadError: true });
 
-export { apiClient, uploadClient, clearSession };
+export { apiClient, uploadClient, clearSession, API_BASE_URL };
 export default apiClient;

@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Spin } from 'antd';
+import { API_BASE_URL } from '../../api';
 import { getAuthToken } from '../../utils/session';
-
-const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
 
 /**
  * 带 JWT 拉取受保护图片并展示
  */
-const AuthenticatedImage = ({ datasetId, imageId, alt, style, className }) => {
+const AuthenticatedImage = ({ datasetId, imageId, url, alt, style, className, fallback }) => {
   const [src, setSrc] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -19,10 +18,8 @@ const AuthenticatedImage = ({ datasetId, imageId, alt, style, className }) => {
       setLoading(true);
       try {
         const token = getAuthToken();
-        const res = await fetch(
-          `${API_BASE}/datasets/${datasetId}/images/${imageId}/file`,
-          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-        );
+        const imageUrl = url || `${(API_BASE_URL || 'http://localhost:8080/api').replace(/\/$/, '')}/datasets/${datasetId}/images/${imageId}/file`;
+        const res = await fetch(imageUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         if (!res.ok) throw new Error('load failed');
         const blob = await res.blob();
         if (cancelled) return;
@@ -35,12 +32,17 @@ const AuthenticatedImage = ({ datasetId, imageId, alt, style, className }) => {
       }
     };
 
-    if (datasetId && imageId) load();
+    if (url || (datasetId && imageId)) {
+      load();
+    } else {
+      setLoading(false);
+      setSrc(null);
+    }
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, imageId]);
+  }, [datasetId, imageId, url]);
 
   if (loading) {
     return (
@@ -51,6 +53,7 @@ const AuthenticatedImage = ({ datasetId, imageId, alt, style, className }) => {
   }
 
   if (!src) {
+    if (fallback) return fallback;
     return (
       <div
         style={{ background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', ...style }}

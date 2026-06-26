@@ -128,4 +128,18 @@ CREATE TABLE IF NOT EXISTS dataset_groups (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 11) regions（区域标注）
+CREATE TABLE IF NOT EXISTS regions (
+  id CHAR(36) PRIMARY KEY,
+  image_id CHAR(36) NOT NULL,
+  region_id VARCHAR(128),
+  name VARCHAR(255),
+  type VARCHAR(64),
+  points JSON,
+  bounding_box JSON,
+  color VARCHAR(32),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (image_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- scene/group_id 由 Spring schema_patch.sql 在 API 启动时补齐

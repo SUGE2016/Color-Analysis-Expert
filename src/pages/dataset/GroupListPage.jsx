@@ -174,20 +174,10 @@ const GroupListPage = () => {
               数据集分组管理
             </Title>
             <span className={listPage.pageMeta}>共 {filteredGroups.length} 个分组</span>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateModalVisible(true)}>
+              新建分组
+            </Button>
           </div>
-        </div>
-        <div className={listPage.headerActions}>
-          <Input
-            className={listPage.searchInput}
-            placeholder="搜索分组…"
-            prefix={<SearchOutlined style={{ color: colors.textTertiary }} />}
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            allowClear
-          />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateModalVisible(true)}>
-            新建分组
-          </Button>
         </div>
       </header>
 
@@ -208,6 +198,16 @@ const GroupListPage = () => {
         {availableYears.length === 0 && (
           <span className={listPage.filterMeta}>暂无学年数据，可在新建分组时填写学年</span>
         )}
+        <div className={listPage.headerActions}>
+          <Input
+            className={listPage.searchInput}
+            placeholder="搜索分组…"
+            prefix={<SearchOutlined style={{ color: colors.textTertiary }} />}
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            allowClear
+          />
+        </div>
       </div>
 
       <div className={listPage.cardGrid}>

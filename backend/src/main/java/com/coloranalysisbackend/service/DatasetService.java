@@ -165,8 +165,12 @@ public class DatasetService {
         }
         img.setCapturedAt(LocalDateTime.now());
         img = imageRepository.save(img);
-        ds.setFileCount(ds.getFileCount() + 1);
+
+        // 使用数据库查询来获取准确的图片数量，避免并发问题
+        long actualCount = imageRepository.countByDatasetId(datasetId);
+        ds.setFileCount((int) actualCount);
         datasetRepository.save(ds);
+
         return img;
     }
 
@@ -306,8 +310,34 @@ public class DatasetService {
             Files.deleteIfExists(Paths.get(img.getStorageKey()));
         }
         imageRepository.deleteById(imageId);
-        ds.setFileCount(Math.max(0, ds.getFileCount() - 1));
+
+        // 使用数据库查询来获取准确的图片数量，避免并发问题
+        long actualCount = imageRepository.countByDatasetId(datasetId);
+        ds.setFileCount((int) actualCount);
         datasetRepository.save(ds);
+    }
+
+    /** 重新计算数据集的fileCount，确保与实际图片数量一致 */
+    public Dataset recalculateFileCount(String datasetId) {
+        Dataset ds = datasetRepository.findById(datasetId)
+                .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + datasetId));
+        List<Image> images = imageRepository.findByDatasetId(datasetId);
+        int actualCount = images.size();
+        ds.setFileCount(actualCount);
+        return datasetRepository.save(ds);
+    }
+
+    /** 重新计算所有数据集的fileCount */
+    public void recalculateAllFileCounts() {
+        List<Dataset> allDatasets = datasetRepository.findAll();
+        for (Dataset ds : allDatasets) {
+            List<Image> images = imageRepository.findByDatasetId(ds.getId());
+            int actualCount = images.size();
+            if (ds.getFileCount() != actualCount) {
+                ds.setFileCount(actualCount);
+                datasetRepository.save(ds);
+            }
+        }
     }
 
     // ---------- private helpers ----------

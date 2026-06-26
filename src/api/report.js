@@ -19,8 +19,8 @@ export const reportApi = {
    * @param {number|string} imageId - 图片ID
    * @returns {Promise} 单图报告数据
    */
-  getImageReport: (projectId, imageId) => {
-    return apiClient.get(`/reports/projects/${projectId}/images/${imageId}`);
+  getImageReport: (projectId, imageName) => {
+    return apiClient.get(`/reports/projects/${projectId}/images/${imageName}`);
   },
 
   /**

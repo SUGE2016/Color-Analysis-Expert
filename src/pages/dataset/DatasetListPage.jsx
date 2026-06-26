@@ -7,7 +7,7 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
   EyeOutlined, ArrowLeftOutlined,
   SortAscendingOutlined, SortDescendingOutlined,
-  FileImageOutlined, PictureOutlined, FolderOpenOutlined
+  FileImageOutlined, PictureOutlined, FolderOpenOutlined, SyncOutlined
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { colors } from '../../components/common/constants';
@@ -210,6 +210,29 @@ const DatasetListPage = () => {
     });
   };
 
+  const handleRecalculateCounts = async () => {
+    Modal.confirm({
+      title: '重新计算图片数量',
+      content: '确定要重新计算所有数据集的图片数量吗？这将根据数据库中的实际图片记录更新每个数据集的fileCount字段。',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await datasetApi.recalculateAllFileCounts();
+          message.success('图片数量重新计算完成');
+          loadData();
+        } catch (error) {
+          console.error('重新计算失败:', error);
+          if (error.response?.status === 401) {
+            message.error('登录已过期，请重新登录后重试');
+          } else {
+            message.error('重新计算失败：' + (error.response?.data?.message || error.message || '未知错误'));
+          }
+        }
+      },
+    });
+  };
+
   const openDetail = (record) => {
     navigate(`/dataset/group/${groupId}/dataset/${record.id}`);
   };
@@ -354,6 +377,9 @@ const DatasetListPage = () => {
             }}
             allowClear
           />
+          <Button icon={<SyncOutlined />} onClick={handleRecalculateCounts}>
+            修复统计
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateModalVisible(true)}>
             新建数据集
           </Button>

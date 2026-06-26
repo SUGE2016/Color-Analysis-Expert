@@ -1,0 +1,167 @@
+[
+  {
+    "image_path": "lj2_image\\lj2_01_01_01.jpg",
+    "image_name": "lj2_01_01_01.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_01",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 39,
+    "num_regions": 37,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_01\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_02.jpg",
+    "image_name": "lj2_01_01_02.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_02",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_02\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_03.jpg",
+    "image_name": "lj2_01_01_03.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_03",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 35,
+    "num_regions": 34,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_03\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_04.jpg",
+    "image_name": "lj2_01_01_04.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_04",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 35,
+    "num_regions": 34,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_04\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_05.jpg",
+    "image_name": "lj2_01_01_05.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_05",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 39,
+    "num_regions": 37,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_05\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_06.jpg",
+    "image_name": "lj2_01_01_06.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_06",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_06\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_07.jpg",
+    "image_name": "lj2_01_01_07.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_07",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_07\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_08.jpg",
+    "image_name": "lj2_01_01_08.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_08",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 36,
+    "num_regions": 34,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_08\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_09.jpg",
+    "image_name": "lj2_01_01_09.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_09",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 40,
+    "num_regions": 38,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_09\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_10.jpg",
+    "image_name": "lj2_01_01_10.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_10",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_10\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_11.jpg",
+    "image_name": "lj2_01_01_11.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_11",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_11\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_12.jpg",
+    "image_name": "lj2_01_01_12.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_12",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 39,
+    "num_regions": 37,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_12\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_13.jpg",
+    "image_name": "lj2_01_01_13.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_13",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 38,
+    "num_regions": 36,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_13\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_14.jpg",
+    "image_name": "lj2_01_01_14.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_14",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 21,
+    "num_regions": 19,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_14\\closed_regions_result.json"
+  },
+  {
+    "image_path": "lj2_image\\lj2_01_01_15.jpg",
+    "image_name": "lj2_01_01_15.jpg",
+    "output_dir": "batch_closed_regions_output\\lj2_01_01_15",
+    "status": "success",
+    "image_width": 2047,
+    "image_height": 1465,
+    "num_components": 36,
+    "num_regions": 34,
+    "json_path": "batch_closed_regions_output\\lj2_01_01_15\\closed_regions_result.json"
+  }
+]

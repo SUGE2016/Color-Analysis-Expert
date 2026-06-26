@@ -149,6 +149,24 @@ public class DatasetController {
         }
     }
 
+    @PostMapping("/{id}/recalculate-count")
+    @Operation(summary = "重新计算数据集图片数量")
+    public ResponseEntity<?> recalculateFileCount(@PathVariable("id") String id) {
+        try {
+            Dataset ds = datasetService.recalculateFileCount(id);
+            return ResponseEntity.ok(ds);
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
+    @PostMapping("/recalculate-all-counts")
+    @Operation(summary = "重新计算所有数据集图片数量")
+    public ResponseEntity<?> recalculateAllFileCounts() {
+        datasetService.recalculateAllFileCounts();
+        return ResponseEntity.ok().build();
+    }
+
     public static class CreateRequest {
         private String name;
         private String description;

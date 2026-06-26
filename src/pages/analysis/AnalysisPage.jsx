@@ -732,7 +732,7 @@ const AnalysisPage = () => {
             <AuthenticatedImage
               url={templateApi.getTemplateImageUrl(record.id)}
               alt="模板"
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               onError={(e) => {
                 e.target.style.display = 'none';
                 e.target.nextSibling.style.display = 'block';
@@ -1331,7 +1331,7 @@ const AnalysisPage = () => {
                 <AuthenticatedImage
                   url={templateApi.getTemplateImageUrl(currentTemplate.id)}
                   alt="模板照片"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   onError={(e) => {
                     e.target.style.display = 'none';
                     e.target.nextSibling.style.display = 'block';
