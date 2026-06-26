@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class TemplateService {
@@ -47,17 +48,21 @@ public class TemplateService {
             t.setTemplateImageKey(imageKey);
         }
 
-        return templateRepository.save(t);
+        return markImageAvailability(templateRepository.save(t));
     }
 
     /** 查询所有模板 */
     public List<Template> listTemplates() {
-        return templateRepository.findAll();
+        return templateRepository.findAll().stream()
+                .map(this::markImageAvailability)
+                .collect(Collectors.toList());
     }
 
     /** 查询单个模板 */
     public Template getTemplate(String id) {
-        return templateRepository.findById(id).orElse(null);
+        return templateRepository.findById(id)
+                .map(this::markImageAvailability)
+                .orElse(null);
     }
 
     /** 更新模板（名称/区域定义/替换图片） */
@@ -74,14 +79,14 @@ public class TemplateService {
         if (imageFile != null && !imageFile.isEmpty()) {
             // 删除旧文件
             if (t.getTemplateImageKey() != null) {
-                Path old = Paths.get(t.getTemplateImageKey());
+                Path old = resolveTemplateImagePath(t.getTemplateImageKey());
                 Files.deleteIfExists(old);
             }
             String imageKey = saveTemplateImage(id, imageFile);
             t.setTemplateImageKey(imageKey);
         }
 
-        return templateRepository.save(t);
+        return markImageAvailability(templateRepository.save(t));
     }
 
     /** 删除模板。若仍有项目引用则拒绝 */
@@ -97,7 +102,7 @@ public class TemplateService {
         }
 
         if (t.getTemplateImageKey() != null) {
-            Path imgPath = Paths.get(t.getTemplateImageKey());
+            Path imgPath = resolveTemplateImagePath(t.getTemplateImageKey());
             Files.deleteIfExists(imgPath);
         }
         templateRepository.deleteById(id);
@@ -116,6 +121,27 @@ public class TemplateService {
         }
         Path target = dir.resolve(filename);
         Files.copy(file.getInputStream(), target);
-        return target.toString();
+        return baseDir.relativize(target).toString();
+    }
+
+    public Path getTemplateImagePath(Template template) {
+        if (template == null || template.getTemplateImageKey() == null || template.getTemplateImageKey().isBlank()) {
+            return null;
+        }
+        Path path = resolveTemplateImagePath(template.getTemplateImageKey());
+        return Files.exists(path) && Files.isRegularFile(path) ? path : null;
+    }
+
+    private Template markImageAvailability(Template template) {
+        template.setImageAvailable(getTemplateImagePath(template) != null);
+        return template;
+    }
+
+    private Path resolveTemplateImagePath(String imageKey) {
+        Path path = Paths.get(imageKey);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        return baseDir.resolve(path).normalize();
     }
 }

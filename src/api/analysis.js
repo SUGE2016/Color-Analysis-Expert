@@ -1,4 +1,5 @@
 import apiClient from './index';
+import { getOwnerId } from '../utils/session';
 
 /**
  * 分析项目 API
@@ -21,8 +22,18 @@ export const analysisApi = {
    * @param {Object} data.config - 分析配置
    */
   createProject: (data) => {
-    const { name, ownerId, datasetId, templateId, config } = data;
-    return apiClient.post('/projects', { name, ownerId, datasetId, templateId, config });
+    const { name, ownerId, datasetId, datasetIds, templateId, config } = data;
+    const normalizedDatasetId = datasetId || datasetIds?.[0];
+    return apiClient.post('/projects', {
+      name,
+      ownerId: ownerId || getOwnerId(),
+      datasetId: normalizedDatasetId,
+      templateId,
+      config: {
+        ...(config || {}),
+        datasetIds: datasetIds || (normalizedDatasetId ? [normalizedDatasetId] : []),
+      },
+    });
   },
 
   /**
@@ -66,8 +77,8 @@ export const analysisApi = {
    * 启动项目分析
    * @param {string} projectId - 项目ID
    */
-  startAnalysis: (projectId) => {
-    return apiClient.post(`/projects/${projectId}/analyze`);
+  startAnalysis: (projectId, data = {}) => {
+    return apiClient.post(`/projects/${projectId}/run`, data);
   },
 
   /**
@@ -83,7 +94,7 @@ export const analysisApi = {
    * @param {string} projectId - 项目ID
    */
   getAnalysisProgress: (projectId) => {
-    return apiClient.get(`/projects/${projectId}/progress`);
+    return apiClient.get(`/projects/${projectId}/tasks`);
   }
 };
 

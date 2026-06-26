@@ -131,6 +131,30 @@ public class ProjectAnalysisService {
         }
     }
 
+    public void stopProject(String projectId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
+        
+        // Only stop if project is currently running
+        if (!"running".equals(project.getStatus())) {
+            throw new IllegalArgumentException("project is not running, current status: " + project.getStatus());
+        }
+        
+        project.setStatus("stopped");
+        projectRepository.save(project);
+        
+        // Mark any pending tasks as cancelled
+        List<Task> pendingTasks = taskRepository.findByProjectId(projectId).stream()
+                .filter(t -> "pending".equals(t.getStatus()))
+                .toList();
+        
+        for (Task task : pendingTasks) {
+            task.setStatus("cancelled");
+            task.setLogs("Task cancelled due to project stop");
+            taskRepository.save(task);
+        }
+    }
+
     private String toJson(Object object) {
         try {
             return objectMapper.writeValueAsString(object);

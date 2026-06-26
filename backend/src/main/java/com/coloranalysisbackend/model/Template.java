@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Data;
 
 @Entity
@@ -29,4 +30,7 @@ public class Template {
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private java.time.LocalDateTime createdAt;
+
+    @Transient
+    private boolean imageAvailable;
 }

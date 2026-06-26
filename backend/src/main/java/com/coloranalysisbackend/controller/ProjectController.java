@@ -73,6 +73,17 @@ public class ProjectController {
         }
     }
 
+    @PostMapping("/{id}/stop")
+    @Operation(summary = "停止项目分析")
+    public ResponseEntity<?> stop(@PathVariable("id") String id) {
+        try {
+            projectAnalysisService.stopProject(id);
+            return ResponseEntity.ok().build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
     @GetMapping("/{id}/tasks")
     @Operation(summary = "查询项目任务列表")
     public ResponseEntity<List<Task>> listTasks(@PathVariable("id") String id) {

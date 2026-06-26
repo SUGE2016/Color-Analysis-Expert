@@ -52,11 +52,18 @@ public class ReportController {
         try {
             File file = reportService.exportProjectSummary(projectId, format);
             String lowered = format.toLowerCase();
-            MediaType contentType = switch (lowered) {
-                case "xlsx" -> MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-                case "pdf" -> MediaType.APPLICATION_PDF;
-                default -> MediaType.parseMediaType("text/csv");
-            };
+            MediaType contentType;
+            switch (lowered) {
+                case "xlsx":
+                    contentType = MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                    break;
+                case "pdf":
+                    contentType = MediaType.APPLICATION_PDF;
+                    break;
+                default:
+                    contentType = MediaType.parseMediaType("text/csv");
+                    break;
+            }
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + file.getName())

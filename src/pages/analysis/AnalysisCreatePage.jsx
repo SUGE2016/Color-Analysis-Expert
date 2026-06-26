@@ -947,10 +947,10 @@ const AnalysisCreatePage = () => {
   const renderStep1 = () => (
     <div style={stepContainerStyle}>
       {/* 左侧: 项目信息 */}
-      <div style={leftPanelStyle(320)}>
-        <Card 
+      <div style={leftPanelStyle(280)}>
+        <Card
           title={<SectionTitle icon={<ExperimentOutlined />} title="项目信息" />}
-          styles={{ body: { padding: '20px' } }}
+          styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
           style={cardStyle}
         >
           <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -976,7 +976,7 @@ const AnalysisCreatePage = () => {
                 placeholder="简要描述本次分析的目的..."
                 value={projectDescription}
                 onChange={(e) => setProjectDescription(e.target.value)}
-                rows={5}
+                rows={4}
                 style={{ borderRadius: 8, resize: 'none' }}
               />
             </div>
@@ -1018,7 +1018,7 @@ const AnalysisCreatePage = () => {
           styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
           style={{ ...cardStyle, height: '100%' }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
             {backendDatasets.length === 0 ? (
               <Empty description="暂无数据集" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
@@ -1032,6 +1032,8 @@ const AnalysisCreatePage = () => {
                       ...datasetItemStyle,
                       backgroundColor: isSelected ? colors.primaryLight : colors.white,
                       borderColor: isSelected ? colors.primary : colors.neutralDark,
+                      transition: 'all 0.2s ease',
+                      cursor: 'pointer',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1041,21 +1043,28 @@ const AnalysisCreatePage = () => {
                           datasetId={dataset.id}
                           imageId={datasetPreviewImages[dataset.id].id}
                           alt={dataset.name}
-                          style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                          style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
                         />
                       ) : (
-                        <FileImageOutlined style={{ fontSize: 28, color: colors.textTertiary, width: 56 }} />
+                        <div style={{ width: 64, height: 64, borderRadius: 6, background: colors.neutralLight, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <FileImageOutlined style={{ fontSize: 28, color: colors.textTertiary }} />
+                        </div>
                       )}
-                      <div>
-                        <Text style={{ fontSize: 14, fontWeight: 500 }}>{dataset.name}</Text>
-                        <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={{ fontSize: 14, fontWeight: 500, display: 'block' }}>{dataset.name}</Text>
+                        <div style={{ marginTop: 4 }}>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            {dataset.imageCount ?? dataset.fileCount ?? 0} 张图片 · {dataset.year ?? dataset.academicYear ?? '-'}
+                            {dataset.imageCount ?? dataset.fileCount ?? 0} 张图片
                           </Text>
+                        </div>
+                        <div>
+                          <Tag color="blue" style={{ fontSize: 11, marginTop: 4 }}>
+                            {dataset.year ?? dataset.academicYear ?? '未分类'}
+                          </Tag>
                         </div>
                       </div>
                     </div>
-                    {isSelected && <CheckCircleOutlined style={{ color: colors.success }} />}
+                    {isSelected && <CheckCircleOutlined style={{ color: colors.success, fontSize: 18 }} />}
                   </div>
                 );
               })
@@ -1065,7 +1074,7 @@ const AnalysisCreatePage = () => {
       </div>
 
       {/* 右侧: 模板选择 */}
-      <div style={rightPanelStyle(360)}>
+      <div style={rightPanelStyle(320)}>
         <Card 
           title={<SectionTitle icon={<PictureOutlined />} title="选择模板" />}
           extra={
@@ -1091,13 +1100,15 @@ const AnalysisCreatePage = () => {
                     borderColor: isSelected ? colors.primary : 'transparent',
                     backgroundColor: isSelected ? colors.primaryLight : colors.white,
                     boxShadow: isSelected ? `0 0 0 2px ${colors.primary}` : styles.shadow.sm,
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer',
                   }}
                 >
                   {template.imageAvailable ? (
                     <AuthenticatedImage
                       url={templateApi.getTemplateImageUrl(template.id)}
                       alt={template.name}
-                      style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }}
+                      style={{ width: 72, height: 72, objectFit: 'contain', borderRadius: 6 }}
                       onError={(e) => {
                         e.target.style.display = 'none';
                         e.target.nextSibling.style.display = 'block';
@@ -1105,7 +1116,9 @@ const AnalysisCreatePage = () => {
                     />
                   ) : null}
                   {!template.imageAvailable && (
-                    <FileOutlined style={{ fontSize: 32, color: '#bfbfbf' }} />
+                    <div style={{ width: 72, height: 72, borderRadius: 6, background: colors.neutralLight, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FileOutlined style={{ fontSize: 28, color: colors.textTertiary }} />
+                    </div>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -1125,7 +1138,7 @@ const AnalysisCreatePage = () => {
                 <AuthenticatedImage
                   url={templateApi.getTemplateImageUrl(selectedTemplateImage.id)}
                   alt={selectedTemplateImage.name}
-                  style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 6 }}
+                  style={{ width: '100%', height: 140, objectFit: 'contain', borderRadius: 6 }}
                   onError={(e) => {
                     e.target.style.display = 'none';
                     e.target.nextSibling.style.display = 'block';
@@ -1133,7 +1146,7 @@ const AnalysisCreatePage = () => {
                 />
               ) : null}
               {!selectedTemplateImage.imageAvailable && (
-                <div style={{ width: '100%', height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.neutralLight, borderRadius: 6 }}>
+                <div style={{ width: '100%', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.neutralLight, borderRadius: 6 }}>
                   <FileOutlined style={{ fontSize: 48, color: colors.textTertiary }} />
                 </div>
               )}
@@ -1151,9 +1164,9 @@ const AnalysisCreatePage = () => {
     <div style={stepContainerStyle}>
       {/* 左侧: 矫正控制面板 */}
       <div style={leftPanelStyle(340)}>
-        <Card 
+        <Card
           title={<SectionTitle icon={<ExperimentOutlined />} title="矫正控制" />}
-          styles={{ body: { padding: '24px' } }}
+          styles={{ body: { padding: '24px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
           style={cardStyle}
         >
           <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -1308,9 +1321,9 @@ const AnalysisCreatePage = () => {
     <div style={stepContainerStyle}>
       {/* 左侧: 工具面板 */}
       <div style={leftPanelStyle(280)}>
-        <Card 
+        <Card
           title={<SectionTitle icon={<SettingOutlined />} title="区域工具" />}
-          styles={{ body: { padding: '20px' } }}
+          styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
           style={cardStyle}
         >
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -1948,8 +1961,9 @@ const mainPanelStyle = {
 
 const cardStyle = {
   borderRadius: 12,
-  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-  border: '1px solid #e2e8f0',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+  border: '1px solid #e8e8e8',
+  transition: 'box-shadow 0.2s ease',
 };
 
 const SectionTitle = ({ icon, title }) => (
@@ -1975,25 +1989,33 @@ const summaryItemStyle = {
 };
 
 const datasetItemStyle = {
-  padding: '12px 14px',
-  borderRadius: 8,
+  padding: '14px 16px',
+  borderRadius: 10,
   cursor: 'pointer',
   border: '1px solid',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   transition: 'all 0.2s ease',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  },
 };
 
 const templateCardStyle = {
   display: 'flex',
   alignItems: 'center',
   gap: 14,
-  padding: 12,
+  padding: '14px',
   borderRadius: 10,
   cursor: 'pointer',
   border: '2px solid',
   transition: 'all 0.2s ease',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  },
 };
 
 const infoRowStyle = {

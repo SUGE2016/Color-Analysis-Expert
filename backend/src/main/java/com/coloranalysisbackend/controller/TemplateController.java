@@ -106,4 +106,45 @@ public class TemplateController {
             return ResponseEntity.internalServerError().body(ex.getMessage());
         }
     }
+
+    /** 获取模板图片 */
+    @GetMapping("/{id}/image")
+    @Operation(summary = "获取模板图片")
+    public ResponseEntity<?> getImage(@PathVariable("id") String id) {
+        Template t = templateService.getTemplate(id);
+        if (t == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (t.getTemplateImageKey() == null) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            java.nio.file.Path imagePath = templateService.getTemplateImagePath(t);
+            if (imagePath == null) {
+                return ResponseEntity.notFound().build();
+            }
+            byte[] imageBytes = java.nio.file.Files.readAllBytes(imagePath);
+
+            // 根据文件扩展名设置Content-Type
+            String fileName = imagePath.getFileName().toString().toLowerCase();
+            MediaType mediaType;
+            if (fileName.endsWith(".png")) {
+                mediaType = MediaType.IMAGE_PNG;
+            } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+                mediaType = MediaType.IMAGE_JPEG;
+            } else if (fileName.endsWith(".gif")) {
+                mediaType = MediaType.IMAGE_GIF;
+            } else if (fileName.endsWith(".webp")) {
+                mediaType = MediaType.valueOf("image/webp");
+            } else {
+                mediaType = MediaType.APPLICATION_OCTET_STREAM;
+            }
+
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .body(imageBytes);
+        } catch (IOException ex) {
+            return ResponseEntity.internalServerError().body(ex.getMessage());
+        }
+    }
 }

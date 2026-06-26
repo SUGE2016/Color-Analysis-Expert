@@ -8,6 +8,8 @@ import {
 import { Button, Card, Space, Radio, Typography, message, Upload, Slider, Row, Col, Tag, Modal, List, Form, Input, Empty } from "antd";
 import { SearchOutlined, FileOutlined } from "@ant-design/icons";
 import { templateApi } from "../../api/template";
+import { toolApi } from "../../api/tool";
+import AuthenticatedImage from "../../components/dataset/AuthenticatedImage";
 
 const { Title, Text } = Typography;
 
@@ -66,15 +68,16 @@ export default function ImageCorrectionPage() {
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [uploadForm] = Form.useForm();
   const [uploading, setUploading] = useState(false);
-  
   const sourceCanvasRef = useRef(null);
   const resultCanvasRef = useRef(null);
   const imgRef = useRef(null);
+  const uploadedFileRef = useRef(null);
   const [imgSize, setImgSize] = useState(null);
   const containerRef = useRef(null);
 
   // 处理图片上传
   const handleImageUpload = (file) => {
+    uploadedFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -98,8 +101,21 @@ export default function ImageCorrectionPage() {
     if (!canvas || !img || !imgSize) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const cssW = imgSize.w * scale;
-    const cssH = imgSize.h * scale;
+
+    // 获取容器尺寸
+    const container = canvas.parentElement;
+    const containerWidth = container ? container.clientWidth - 32 : 300; // 减去padding
+    const containerHeight = container ? container.clientHeight - 32 : 200;
+
+    // 计算自适应缩放比例
+    const scaleX = containerWidth / imgSize.w;
+    const scaleY = containerHeight / imgSize.h;
+    const autoScale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小
+
+    // 使用用户设置的缩放或自动缩放
+    const finalScale = scale * autoScale;
+    const cssW = imgSize.w * finalScale;
+    const cssH = imgSize.h * finalScale;
 
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
@@ -223,8 +239,21 @@ export default function ImageCorrectionPage() {
     if (!canvas || !img || !imgSize) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const cssW = imgSize.w * scale;
-    const cssH = imgSize.h * scale;
+
+    // 获取容器尺寸
+    const container = canvas.parentElement;
+    const containerWidth = container ? container.clientWidth - 32 : 600;
+    const containerHeight = container ? container.clientHeight - 32 : 400;
+
+    // 计算自适应缩放比例
+    const scaleX = containerWidth / imgSize.w;
+    const scaleY = containerHeight / imgSize.h;
+    const autoScale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小
+
+    // 使用用户设置的缩放或自动缩放
+    const finalScale = scale * autoScale;
+    const cssW = imgSize.w * finalScale;
+    const cssH = imgSize.h * finalScale;
 
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
@@ -238,7 +267,7 @@ export default function ImageCorrectionPage() {
     ctx.clearRect(0, 0, cssW, cssH);
 
     ctx.save();
-    
+
     // 应用变换
     const centerX = cssW / 2;
     const centerY = cssH / 2;
@@ -368,6 +397,19 @@ export default function ImageCorrectionPage() {
     message.success("已重置");
   };
 
+  // 清除上传的图片
+  const resetImage = () => {
+    setHasUploadedImage(false);
+    setImgSize(null);
+    imgRef.current = null;
+    uploadedFileRef.current = null;
+    setIsCorrected(false);
+    setReferencePoints(DEFAULT_REFERENCE_POINTS[correctionMode]);
+    setRotation(0);
+    setZoom(1);
+    message.success("图片已清除");
+  };
+
   // 下载矫正后的图像
   const downloadCorrectedImage = () => {
     const canvas = resultCanvasRef.current;
@@ -390,7 +432,7 @@ export default function ImageCorrectionPage() {
     setTemplateLoading(true);
     try {
       const response = await templateApi.getTemplates();
-      const templateList = response.data || [];
+      const templateList = Array.isArray(response) ? response : (response?.data || []);
       setTemplates(templateList);
       setFilteredTemplates(templateList);
     } catch (error) {
@@ -435,6 +477,10 @@ export default function ImageCorrectionPage() {
 
   // 选择现有模板
   const handleSelectTemplate = (template) => {
+    if (!template.imageAvailable) {
+      message.warning('该模板照片不存在，请重新上传模板照片后再使用');
+      return;
+    }
     setSelectedTemplate(template);
   };
 
@@ -447,27 +493,32 @@ export default function ImageCorrectionPage() {
   // 上传新模板
   const handleUploadTemplate = async (values) => {
     setUploading(true);
-    
+
     try {
-      // 模拟上传延迟
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const newTemplate = {
-        id: Date.now(),
+      const imageFile = values.templateImage?.[0]?.originFileObj;
+      if (!imageFile) {
+        throw new Error('请选择模板图片');
+      }
+
+      // 调用后端API创建模板
+      const newTemplate = await templateApi.createTemplate({
         name: values.name,
-        templateImage: values.templateImage?.fileList?.[0] ? URL.createObjectURL(values.templateImage.fileList[0].originFileObj) : null,
-      };
-      
-      setTemplates([newTemplate, ...templates]);
+        imageFile: imageFile
+      });
+
+      // 刷新模板列表
+      await fetchTemplates();
+
       setUploading(false);
       setUploadModalVisible(false);
       uploadForm.resetFields();
       message.success('模板上传成功');
-      
+
       // 自动选择新上传的模板
       setSelectedTemplate(newTemplate);
     } catch (error) {
-      message.error('上传失败');
+      console.error('上传模板失败:', error);
+      message.error(`上传失败: ${error.message || '未知错误'}`);
       setUploading(false);
     }
   };
@@ -479,45 +530,84 @@ export default function ImageCorrectionPage() {
       return;
     }
 
+    if (!selectedTemplate.imageAvailable) {
+      message.warning('该模板照片不存在，请重新上传模板照片后再使用');
+      return;
+    }
+
+    if (!uploadedFileRef.current) {
+      message.warning("请先上传需要矫正的图片");
+      return;
+    }
+
     setIsAutoCorrecting(true);
     setTemplateModalVisible(false);
 
-    // 模拟后端API调用
-    setTimeout(() => {
-      const canvas = resultCanvasRef.current;
-      const img = imgRef.current;
-      if (canvas && img && imgSize) {
-        const dpr = window.devicePixelRatio || 1;
-        const cssW = imgSize.w * scale;
-        const cssH = imgSize.h * scale;
+    try {
+      // 构建FormData，包含模板图片和待矫正图片
+      const formData = new FormData();
 
-        canvas.width = Math.round(cssW * dpr);
-        canvas.height = Math.round(cssH * dpr);
-        canvas.style.width = `${cssW}px`;
-        canvas.style.height = `${cssH}px`;
+      // 从后端获取模板图片
+      const templateImageBlob = await templateApi.getTemplateImage(selectedTemplate.id);
+      if (!templateImageBlob) {
+        throw new Error('模板图片不存在');
+      }
+      formData.append('model', templateImageBlob, 'template.png');
 
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, cssW, cssH);
+      // 添加待矫正图片
+      formData.append('image', uploadedFileRef.current, uploadedFileRef.current.name);
 
-          ctx.save();
-          ctx.drawImage(img, 0, 0, cssW, cssH);
-          ctx.restore();
-
-          // 添加模板标记
-          ctx.save();
-          ctx.fillStyle = "rgba(82, 196, 26, 0.8)";
-          ctx.font = "bold 14px system-ui";
-          ctx.fillText(`已应用: ${selectedTemplate.name}`, 10, 25);
-          ctx.restore();
-        }
+      // 调用后端API进行图像矫正
+      const response = await toolApi.alignImage(formData);
+      if (!(response instanceof Blob) || response.size === 0 || response.type.includes('application/json') || response.type.startsWith('text/')) {
+        const errorText = response instanceof Blob ? await response.text() : '';
+        throw new Error(errorText || '矫正失败，未返回图片数据');
       }
 
-      setIsCorrected(true);
+      // 将返回的图片数据显示在结果画布上
+      const canvas = resultCanvasRef.current;
+      if (canvas && response) {
+        const dpr = window.devicePixelRatio || 1;
+
+        // 创建Image对象加载返回的图片
+        const correctedImg = new Image();
+        correctedImg.onload = () => {
+          const cssW = correctedImg.width;
+          const cssH = correctedImg.height;
+
+          canvas.width = Math.round(cssW * dpr);
+          canvas.height = Math.round(cssH * dpr);
+          canvas.style.width = `${cssW}px`;
+          canvas.style.height = `${cssH}px`;
+
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+            ctx.drawImage(correctedImg, 0, 0, cssW, cssH);
+          }
+
+          setIsCorrected(true);
+          setIsAutoCorrecting(false);
+          message.success(`自动矫正完成！使用模板: ${selectedTemplate.name}`);
+        };
+        correctedImg.onerror = () => {
+          setIsAutoCorrecting(false);
+          message.error('矫正后的图片加载失败');
+        };
+
+        // response是Blob或ArrayBuffer，转换为URL
+        const blob = response instanceof Blob ? response : new Blob([response]);
+        correctedImg.src = URL.createObjectURL(blob);
+      } else {
+        setIsAutoCorrecting(false);
+        message.error('矫正失败，未返回图片数据');
+      }
+    } catch (error) {
+      console.error('自动矫正失败:', error);
       setIsAutoCorrecting(false);
-      message.success(`自动矫正完成！使用模板: ${selectedTemplate.name}`);
-    }, 2000);
+      message.error(`自动矫正失败: ${error.message || '未知错误'}`);
+    }
   };
 
   return (
@@ -548,18 +638,48 @@ export default function ImageCorrectionPage() {
       <div style={styles.body}>
         {/* 左侧控制面板 */}
         <div style={styles.sidebar}>
-          <Card title="图像上传" size="small" style={{ marginBottom: 16 }}>
-            <Upload.Dragger
-              accept="image/*"
-              beforeUpload={handleImageUpload}
-              showUploadList={false}
-            >
-              <p className="ant-upload-drag-icon">
-                <UploadOutlined />
-              </p>
-              <p className="ant-upload-text">点击或拖拽上传图片</p>
-              <p className="ant-upload-hint">支持 JPG、PNG 格式</p>
-            </Upload.Dragger>
+          <Card title="源图像" size="small" style={{ marginBottom: 16 }}>
+            {!hasUploadedImage ? (
+              <Upload.Dragger
+                accept="image/*"
+                beforeUpload={handleImageUpload}
+                showUploadList={false}
+                style={{ height: 200 }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <UploadOutlined />
+                </p>
+                <p className="ant-upload-text">点击或拖拽上传图片</p>
+                <p className="ant-upload-hint">支持 JPG、PNG 格式</p>
+              </Upload.Dragger>
+            ) : (
+              <div style={{ position: 'relative', width: '100%', height: 200, display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+                <canvas
+                  ref={sourceCanvasRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  style={{
+                    cursor: isDragging ? "grabbing" : "grab",
+                    borderRadius: 8,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain'
+                  }}
+                />
+                <Button
+                  type="primary"
+                  danger
+                  size="small"
+                  onClick={resetImage}
+                  style={{ position: 'absolute', top: 8, right: 8 }}
+                >
+                  清除
+                </Button>
+              </div>
+            )}
           </Card>
 
           <Card title="矫正模式" size="small" style={{ marginBottom: 16 }}>
@@ -670,25 +790,25 @@ export default function ImageCorrectionPage() {
         {/* 主内容区 */}
         <div style={styles.main} ref={containerRef}>
           <Row gutter={16} style={{ flex: 1, minHeight: 0 }}>
-            {/* 源图像 */}
-            <Col span={isCorrected ? 12 : 24} style={{ height: "100%" }}>
-              <Card 
+            {/* 矫正后的图像 */}
+            <Col span={24} style={{ height: "100%" }}>
+              <Card
                 title={
                   <Space>
-                    <span>原始图像</span>
-                    <Tag color="blue">可编辑</Tag>
+                    <span>矫正效果</span>
+                    <Tag color={isCorrected ? "green" : "default"}>{isCorrected ? "预览" : "等待矫正"}</Tag>
                   </Space>
                 }
                 extra={
                   <Space>
-                    <Button 
+                    <Button
                       icon={<ZoomOutOutlined />}
                       onClick={() => setScale(s => Math.max(0.25, +(s - 0.1).toFixed(2)))}
                       disabled={!hasUploadedImage}
                       size="small"
                     />
                     <Text>缩放: {scale.toFixed(2)}x</Text>
-                    <Button 
+                    <Button
                       icon={<ZoomInOutlined />}
                       onClick={() => setScale(s => Math.min(4, +(s + 0.1).toFixed(2)))}
                       disabled={!hasUploadedImage}
@@ -706,46 +826,27 @@ export default function ImageCorrectionPage() {
                       请先上传图片
                     </Text>
                   </div>
+                ) : !isCorrected ? (
+                  <div style={styles.emptyState}>
+                    <FileImageOutlined style={{ fontSize: 48, color: "#ccc" }} />
+                    <Text type="secondary" style={{ marginTop: 16 }}>
+                      请先进行图像矫正
+                    </Text>
+                  </div>
                 ) : (
                   <canvas
-                    ref={sourceCanvasRef}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    style={{ 
-                      cursor: isDragging ? "grabbing" : "grab",
+                    ref={resultCanvasRef}
+                    style={{
                       borderRadius: 8,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain'
                     }}
                   />
                 )}
               </Card>
             </Col>
-
-            {/* 矫正后的图像 */}
-            {isCorrected && (
-              <Col span={12} style={{ height: "100%" }}>
-                <Card 
-                  title={
-                    <Space>
-                      <span>矫正效果</span>
-                      <Tag color="green">预览</Tag>
-                    </Space>
-                  }
-                  style={{ height: "100%" }}
-                  bodyStyle={{ height: "calc(100% - 57px)", overflow: "auto", display: "flex", justifyContent: "center", alignItems: "center" }}
-                >
-                  <canvas
-                    ref={resultCanvasRef}
-                    style={{ 
-                      borderRadius: 8,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
-                    }}
-                  />
-                </Card>
-              </Col>
-            )}
           </Row>
 
           {/* 参考点信息面板 */}
@@ -841,9 +942,9 @@ export default function ImageCorrectionPage() {
                       }}
                     >
                       <div style={{ textAlign: "center" }}>
-                        <div style={{ 
-                          width: '100%', 
-                          height: 100, 
+                        <div style={{
+                          width: '100%',
+                          height: 100,
                           background: '#f5f5f5',
                           borderRadius: 4,
                           display: 'flex',
@@ -852,19 +953,31 @@ export default function ImageCorrectionPage() {
                           overflow: 'hidden',
                           marginBottom: 8
                         }}>
-                          {template.templateImage ? (
-                            <img 
-                              src={template.templateImage} 
+                          {template.imageAvailable ? (
+                            <AuthenticatedImage
+                              url={templateApi.getTemplateImageUrl(template.id)}
                               alt={template.name}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'block';
+                              }}
                             />
-                          ) : (
-                            <FileOutlined style={{ fontSize: 32, color: '#bfbfbf' }} />
-                          )}
+                          ) : null}
+                          <FileOutlined
+                            style={{
+                              fontSize: 32,
+                              color: '#bfbfbf',
+                              display: template.imageAvailable ? 'none' : 'block'
+                            }}
+                          />
                         </div>
                         <Text strong style={{ fontSize: 12, display: "block" }} ellipsis={{ tooltip: template.name }}>
                           {template.name}
                         </Text>
+                        {!template.imageAvailable && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>照片缺失</Text>
+                        )}
                       </div>
                     </Card>
                   </List.Item>

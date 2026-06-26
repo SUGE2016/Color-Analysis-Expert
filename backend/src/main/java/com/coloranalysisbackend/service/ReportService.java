@@ -113,11 +113,14 @@ public class ReportService {
         Files.createDirectories(reportDir);
 
         String targetFormat = (format == null || format.isBlank()) ? "csv" : format.toLowerCase(Locale.ROOT);
-        return switch (targetFormat) {
-            case "xlsx" -> writeXlsx(reportDir.resolve("summary.xlsx"), unifiedRows);
-            case "pdf" -> writePdf(reportDir.resolve("summary.pdf"), projectId, unifiedRows);
-            default -> writeCsv(reportDir.resolve("summary.csv"), unifiedRows);
-        };
+        switch (targetFormat) {
+            case "xlsx":
+                return writeXlsx(reportDir.resolve("summary.xlsx"), unifiedRows);
+            case "pdf":
+                return writePdf(reportDir.resolve("summary.pdf"), projectId, unifiedRows);
+            default:
+                return writeCsv(reportDir.resolve("summary.csv"), unifiedRows);
+        }
     }
 
     private Task getLatestSuccessTask(String projectId) {

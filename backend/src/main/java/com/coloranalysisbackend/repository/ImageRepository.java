@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface ImageRepository extends JpaRepository<Image, String> {
     List<Image> findByDatasetId(String datasetId);
+
+    long countByDatasetId(String datasetId);
 }
