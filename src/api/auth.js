@@ -27,6 +27,11 @@ export const authApi = {
   },
 
   me: () => apiClient.get('/auth/me'),
+
+  changePassword: (data) => {
+    const { oldPassword, newPassword } = data;
+    return apiClient.post('/auth/change-password', { oldPassword, newPassword });
+  },
 };
 
 export default authApi;

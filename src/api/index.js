@@ -47,6 +47,9 @@ function attachAuthInterceptors(client, { withUploadError = false } = {}) {
         }
         return response.data.data;
       }
+      if (response.config?.responseType === 'blob') {
+        return response.data;
+      }
       return response.data;
     },
     (error) => {

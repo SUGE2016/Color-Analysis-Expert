@@ -1,59 +1,59 @@
 meta:
-  run_at: 2024-06-24T19:40:00+08:00
+  run_at: 2026-07-02T21:57:19+08:00
   environment: docker
   api_base: http://localhost:8080
   frontend_base: http://localhost:3000
-  script: manual: Python requests + PowerShell HTTP API probes
-  git_commit: unknown
+  script: tests/scripts/run-p0-p1.sh
+  git_commit: a4f8972
 
 summary:
-  pass: 34
+  pass: 41
   fail: 0
-  skip: 9
+  skip: 2
   block: 0
   total: 43
 
 records:
-SMK-01|PASS|MySQL container healthy
-SMK-02|PASS|Python container running without errors
-SMK-03|PASS|API Swagger UI returns 200
-SMK-04|PASS|OpenAPI docs returns 200 with paths
-SMK-05|PASS|Login returns 200 with token
-SMK-06|PASS|Protected API with token returns 200
-SMK-07|PASS|Protected API without token returns 401
-SMK-08|SKIP|Frontend page manual test skipped
-AUTH-01|PASS|Correct login returns 200 with token
-AUTH-02|PASS|Wrong password returns 401
-AUTH-03|PASS|Missing password field returns 400
-AUTH-04|PASS|Register new user returns 200 with id
-AUTH-05|PASS|Duplicate registration returns 400
-GRP-01|PASS|Create group returns 200 with id
-GRP-02|PASS|List groups returns 200 with created group
-GRP-03|PASS|Get single group returns 200
-DS-01|PASS|Create dataset returns 200 with fileCount:0
-DS-02|PASS|List datasets returns 200 array
-DS-03|PASS|Filter datasets returns 200 (empty as expected)
-DS-04|PASS|Get single dataset returns 200 with fileCount:1
-DS-05|PASS|Upload image returns 200 with storageKey
-DS-06|PASS|List images returns 200 with uploaded image
-DS-07|PASS|Non-existent dataset returns 404
-PRJ-01|PASS|Create project returns 200 with status created
-PRJ-02|PASS|List projects returns 200 with created project
-PRJ-03|PASS|Get single project returns 200
-PRJ-04|SKIP|Run analysis skipped (needs complete dataset and model files)
-PRJ-05|PASS|Get tasks returns 200 (empty array)
-PRJ-06|SKIP|Run on empty dataset skipped
-PRJ-07|SKIP|No token test skipped
-ALG-01|PASS|Canny detection returns 200 with regions
-ALG-02|PASS|Corner detection returns 200 with points array
-ALG-03|PASS|Perspective align returns 200 image/png
-ALG-04|PASS|HSV process returns 200 image/png
-ALG-05|SKIP|Python unavailable test skipped
-RPT-01|PASS|Summary report returns 200 (no successful task message)
-RPT-02|SKIP|Single image report skipped (needs run data)
-RPT-03|SKIP|Export CSV skipped (needs run data)
-RPT-04|PASS|Report on created project returns error as expected
-TPL-01|SKIP|Create template skipped (needs fixtures)
-TPL-02|PASS|List templates returns 200 array
-TPL-03|SKIP|Get single template skipped
-TPL-04|SKIP|Update/delete template skipped
+SMK-01|PASS|mysql healthy
+SMK-02|PASS|python container running
+SMK-03|PASS|swagger 200
+SMK-04|PASS|openapi 200
+SMK-05|PASS|login ok
+SMK-06|PASS|datasets 200
+SMK-07|PASS|unauth 401
+SMK-08|PASS|frontend 200 at http://localhost:3000
+AUTH-01|PASS|token from SMK-05
+AUTH-02|PASS|wrong pwd 401
+AUTH-03|PASS|missing field 401
+AUTH-04|PASS|register testuser_1783000610
+AUTH-05|PASS|dup register 400
+GRP-01|PASS|group e6f4fcdb-5c0f-49ba-8b92-4e897215d4f8
+GRP-02|PASS|list groups
+GRP-03|PASS|get group
+DS-01|PASS|dataset 333495d2-71d9-4e5e-b147-0dcfe76116a3
+DS-02|PASS|list ds
+DS-03|PASS|filter ds
+DS-04|PASS|get ds
+DS-05|PASS|upload
+DS-06|PASS|list images
+DS-07|PASS|404
+TPL-01|PASS|tpl 1c00f148-9ee2-4049-b046-62fd178c1e55
+TPL-02|PASS|list tpl
+TPL-03|PASS|get tpl
+TPL-04|SKIP|update/delete not scripted; check swagger
+ALG-01|PASS|canny 200
+ALG-02|PASS|points 200
+ALG-03|PASS|align 200
+ALG-04|PASS|hsv 200
+ALG-05|SKIP|destructive (stop python); not run
+PRJ-01|PASS|prj cd8623da-8475-4e55-9a5c-8189ecc03a50
+PRJ-02|PASS|list prj
+PRJ-03|PASS|get prj
+PRJ-04|PASS|run 200 task=success
+PRJ-05|PASS|tasks
+PRJ-06|PASS|empty run documented 200
+PRJ-07|PASS|unauth 401
+RPT-01|PASS|summary 200
+RPT-02|PASS|image report 200
+RPT-03|PASS|export 200
+RPT-04|PASS|no-run summary 400

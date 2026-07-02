@@ -75,3 +75,17 @@ SET @sql_stmt := IF(
 PREPARE stmt FROM @sql_stmt;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- regions 表（区域标注）
+CREATE TABLE IF NOT EXISTS regions (
+  id CHAR(36) PRIMARY KEY,
+  image_id CHAR(36) NOT NULL,
+  region_id VARCHAR(128),
+  name VARCHAR(255),
+  type VARCHAR(64),
+  points JSON,
+  bounding_box JSON,
+  color VARCHAR(32),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (image_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
