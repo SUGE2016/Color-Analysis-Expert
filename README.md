@@ -99,6 +99,7 @@ docker compose --profile prod up --build
 ## 测试
 
 - 用例与计划：[`tests/`](tests/)
+- **多人协作**：[`docs/协作指南.md`](docs/协作指南.md)（目标、分工、PR 约定）
 - 报告契约：[`tests/contracts/TEST-REPORT-CONTRACT.md`](tests/contracts/TEST-REPORT-CONTRACT.md)
 - 模板：[`tests/templates/`](tests/templates/)
 - Cursor Skill：`.cursor/skills/color-analysis-testing/`（执行测试与撰写摘要/报告）
