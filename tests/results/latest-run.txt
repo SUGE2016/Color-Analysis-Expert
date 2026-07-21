@@ -1,26 +1,59 @@
 meta:
-  run_at: 2026-07-02T15:08:00+08:00
+  run_at: 2026-07-02T21:57:19+08:00
   environment: docker
   api_base: http://localhost:8080
   frontend_base: http://localhost:3000
-  script: PowerShell/curl equivalent; bash unavailable in current Windows/WSL environment
-  git_commit: unknown
+  script: tests/scripts/run-p0-p1.sh
+  git_commit: a4f8972
 
 summary:
-  pass: 10
+  pass: 41
   fail: 0
-  skip: 0
+  skip: 2
   block: 0
-  total: 10
+  total: 43
 
 records:
-SMK-01|PASS|mysql healthy after docker compose up
+SMK-01|PASS|mysql healthy
 SMK-02|PASS|python container running
-SMK-08|PASS|browser login reached image-correction page with upload and auto-correct controls visible
-AUTH-01|PASS|admin/admin123 login returned token
-GRP-01|PASS|created validation group
-DS-01|PASS|created validation dataset with admin UUID ownerId
-DS-05|PASS|uploaded 02_01_00.jpg, 02_01_01.jpg, 02_01_02.jpg via multipart field file
-DS-06|PASS|listed uploaded images, count was 3
-ALG-01|PASS|POST /api/images/canny returned 200 with 48 regions and no 413
-ALG-03|PASS|POST /api/images/correction/align returned image/png bytes
+SMK-03|PASS|swagger 200
+SMK-04|PASS|openapi 200
+SMK-05|PASS|login ok
+SMK-06|PASS|datasets 200
+SMK-07|PASS|unauth 401
+SMK-08|PASS|frontend 200 at http://localhost:3000
+AUTH-01|PASS|token from SMK-05
+AUTH-02|PASS|wrong pwd 401
+AUTH-03|PASS|missing field 401
+AUTH-04|PASS|register testuser_1783000610
+AUTH-05|PASS|dup register 400
+GRP-01|PASS|group e6f4fcdb-5c0f-49ba-8b92-4e897215d4f8
+GRP-02|PASS|list groups
+GRP-03|PASS|get group
+DS-01|PASS|dataset 333495d2-71d9-4e5e-b147-0dcfe76116a3
+DS-02|PASS|list ds
+DS-03|PASS|filter ds
+DS-04|PASS|get ds
+DS-05|PASS|upload
+DS-06|PASS|list images
+DS-07|PASS|404
+TPL-01|PASS|tpl 1c00f148-9ee2-4049-b046-62fd178c1e55
+TPL-02|PASS|list tpl
+TPL-03|PASS|get tpl
+TPL-04|SKIP|update/delete not scripted; check swagger
+ALG-01|PASS|canny 200
+ALG-02|PASS|points 200
+ALG-03|PASS|align 200
+ALG-04|PASS|hsv 200
+ALG-05|SKIP|destructive (stop python); not run
+PRJ-01|PASS|prj cd8623da-8475-4e55-9a5c-8189ecc03a50
+PRJ-02|PASS|list prj
+PRJ-03|PASS|get prj
+PRJ-04|PASS|run 200 task=success
+PRJ-05|PASS|tasks
+PRJ-06|PASS|empty run documented 200
+PRJ-07|PASS|unauth 401
+RPT-01|PASS|summary 200
+RPT-02|PASS|image report 200
+RPT-03|PASS|export 200
+RPT-04|PASS|no-run summary 400

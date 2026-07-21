@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card, Typography, Button, Table, Tag, Badge,
   Input, Space, Modal, Form, Upload, Empty, Progress, message, Pagination, Spin,
@@ -17,19 +17,17 @@ import listPage from '../../styles/list-page.module.css';
 import { buildYearFilterOptions, extractAcademicYears } from '../../utils/academicYear';
 import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
 import TableWrap from '../../components/table/TableWrap';
-import { templateApi } from '../../api/template';
 import { analysisApi } from '../../api/analysis';
-import AuthenticatedImage from '../../components/dataset/AuthenticatedImage';
+import { templateApi } from '../../api/template';
+import { datasetApi } from '../../api/dataset';
+import AuthenticatedTemplateImage from '../../components/common/AuthenticatedTemplateImage';
+import {
+  ANALYSIS_STATUS,
+  mapBackendProject,
+  mapBackendTemplate,
+} from '../../utils/projectMapper';
 
 const { Title, Text } = Typography;
-
-// 分析状态枚举
-const ANALYSIS_STATUS = {
-  NOT_STARTED: 'not_started',
-  IN_PROGRESS: 'in_progress',
-  COMPLETED: 'completed',
-  FAILED: 'failed'
-};
 
 // 状态配置
 const STATUS_CONFIG = {
@@ -59,99 +57,87 @@ const STATUS_CONFIG = {
   }
 };
 
-// 模拟分析项目数据
-const initialAnalysisProjects = [
-  {
-    id: 1,
-    name: '2025春季全园发展评估',
-    targetCount: 245,
-    createTime: '2025-03-15 09:30:00',
-    updateTime: '2025-03-15 14:20:00',
-    year: 2025,
-    status: ANALYSIS_STATUS.COMPLETED,
-    progress: 100,
-    datasetName: '春季学期涂色数据集',
-    datasetCount: 3,
-    creator: '张老师',
-    description: '针对全园245名儿童的涂色作品进行发展能力评估分析'
-  },
-  {
-    id: 2,
-    name: '大班精细动作能力分析',
-    targetCount: 128,
-    createTime: '2025-03-10 10:15:00',
-    updateTime: '2025-03-15 11:30:00',
-    year: 2025,
-    status: ANALYSIS_STATUS.IN_PROGRESS,
-    progress: 65,
-    datasetName: '大班涂色作品集',
-    datasetCount: 2,
-    creator: '李老师',
-    description: '分析大班儿童精细动作控制能力发展水平'
-  },
-  {
-    id: 3,
-    name: '中班色彩认知研究',
-    targetCount: 86,
-    createTime: '2025-03-08 14:00:00',
-    updateTime: '2025-03-08 14:00:00',
-    year: 2025,
-    status: ANALYSIS_STATUS.NOT_STARTED,
-    progress: 0,
-    datasetName: '中班创意涂色数据集',
-    datasetCount: 1,
-    creator: '王老师',
-    description: '研究中班儿童色彩认知与运用能力'
-  },
-  {
-    id: 4,
-    name: '2024秋季评估汇总',
-    targetCount: 312,
-    createTime: '2024-12-20 08:30:00',
-    updateTime: '2024-12-25 16:45:00',
-    year: 2024,
-    status: ANALYSIS_STATUS.COMPLETED,
-    progress: 100,
-    datasetName: '2024秋季全园数据集',
-    datasetCount: 5,
-    creator: '刘老师',
-    description: '2024年秋季学期全园涂色评估汇总分析'
-  },
-  {
-    id: 5,
-    name: '小班注意力分析项目',
-    targetCount: 92,
-    createTime: '2025-02-28 09:00:00',
-    updateTime: '2025-03-01 10:20:00',
-    year: 2025,
-    status: ANALYSIS_STATUS.FAILED,
-    progress: 30,
-    datasetName: '小班日常涂色数据',
-    datasetCount: 1,
-    creator: '赵老师',
-    description: '分析小班儿童涂色过程中的注意力集中情况'
-  },
-  {
-    id: 6,
-    name: '跨年对比分析-2023vs2024',
-    targetCount: 456,
-    createTime: '2025-01-15 13:30:00',
-    updateTime: '2025-01-20 15:00:00',
-    year: 2025,
-    status: ANALYSIS_STATUS.COMPLETED,
-    progress: 100,
-    datasetName: '跨年综合数据集',
-    datasetCount: 4,
-    creator: '陈老师',
-    description: '对比分析2023与2024年度儿童发展变化趋势'
-  }
-];
-
 const AnalysisPage = () => {
   const navigate = useNavigate();
+  // 从 localStorage 加载未完成的创建项目并合并到 API 数据
+  const loadIncompleteProjects = () => {
+    try {
+      const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
+      const incompleteProjects = savedProjects.map(p => ({
+        id: p.id,
+        name: p.name || '未命名项目',
+        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount || 0), 0) || 0,
+        createTime: p.lastSaved || new Date().toLocaleString(),
+        updateTime: p.lastSaved || new Date().toLocaleString(),
+        year: new Date().getFullYear(),
+        status: ANALYSIS_STATUS.NOT_STARTED,
+        progress: 0,
+        datasetName: p.selectedDatasets?.[0]?.name || '未选择数据集',
+        datasetCount: p.selectedDatasets?.length || 0,
+        creator: '当前用户',
+        description: p.description || '创建途中退出的项目',
+        isIncomplete: true // 标记为未完成项目
+      }));
+      return incompleteProjects;
+    } catch (e) {
+      console.error('加载未完成项目失败:', e);
+      return [];
+    }
+  };
+  
+  const mergeWithIncomplete = (apiProjects) => {
+    const incompleteProjects = loadIncompleteProjects();
+    const merged = [...apiProjects];
+    incompleteProjects.forEach((ip) => {
+      if (!merged.find((p) => String(p.id) === String(ip.id))) {
+        merged.push(ip);
+      }
+    });
+    return merged;
+  };
 
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const loadProjects = async () => {
+    setLoading(true);
+    try {
+      const [projectList, datasets] = await Promise.all([
+        analysisApi.getProjects(),
+        datasetApi.getDatasets(),
+      ]);
+      const datasetNameMap = {};
+      (Array.isArray(datasets) ? datasets : []).forEach((ds) => {
+        datasetNameMap[ds.id] = ds.name;
+      });
+      const mapped = (Array.isArray(projectList) ? projectList : []).map((p) =>
+        mapBackendProject(p, datasetNameMap)
+      );
+      setProjects(mergeWithIncomplete(mapped));
+    } catch {
+      setProjects(mergeWithIncomplete([]));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const list = await templateApi.getTemplates();
+      const mapped = (Array.isArray(list) ? list : []).map(mapBackendTemplate);
+      setTemplates(mapped);
+      setFilteredTemplates(mapped);
+    } catch {
+      setTemplates([]);
+      setFilteredTemplates([]);
+    }
+  };
+
+  useEffect(() => {
+    loadProjects();
+    loadTemplates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 筛选状态
   const [searchValue, setSearchValue] = useState('');
@@ -177,10 +163,9 @@ const AnalysisPage = () => {
   
   // 模板管理状态
   const [templates, setTemplates] = useState([]);
-  const [filteredTemplates, setFilteredTemplates] = useState(templates);
+  const [filteredTemplates, setFilteredTemplates] = useState([]);
   const [templateSearchValue, setTemplateSearchValue] = useState('');
   const [templateManageModalVisible, setTemplateManageModalVisible] = useState(false);
-  const [templateLoading, setTemplateLoading] = useState(false);
   
   // 模板分页
   const [templateCurrentPage, setTemplateCurrentPage] = useState(1);
@@ -196,52 +181,12 @@ const AnalysisPage = () => {
   const [uploadForm] = Form.useForm();
   const [uploading, setUploading] = useState(false);
 
-  // 获取分析项目列表
-  const fetchProjects = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await analysisApi.getProjects();
-      const projectList = response.data || [];
-      setProjects(projectList);
-    } catch (error) {
-      console.error('获取分析项目失败:', error);
-      message.error('获取分析项目失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // 组件加载时获取项目列表
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
-
   // 格式化日期为年-月-日
   const formatDate = (dateString) => {
     if (!dateString) return '-';
     const date = new Date(dateString);
     return date.toISOString().split('T')[0];
   };
-
-  // 获取模板列表
-  const fetchTemplates = useCallback(async () => {
-    setTemplateLoading(true);
-    try {
-      const templateList = await templateApi.getTemplates();
-      setTemplates(templateList || []);
-      setFilteredTemplates(templateList || []);
-    } catch (error) {
-      console.error('获取模板列表失败:', error);
-      message.error('获取模板列表失败');
-    } finally {
-      setTemplateLoading(false);
-    }
-  }, []);
-
-  // 组件加载时获取模板列表
-  useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
 
   const availableYears = useMemo(() => extractAcademicYears(projects), [projects]);
 
@@ -321,8 +266,8 @@ const AnalysisPage = () => {
       const keyword = templateSearchValue.toLowerCase();
       result = result.filter(t =>
         t.name.toLowerCase().includes(keyword) ||
-        t.description.toLowerCase().includes(keyword) ||
-        t.uploadBy.toLowerCase().includes(keyword)
+        (t.description || '').toLowerCase().includes(keyword) ||
+        (t.uploadBy || '').toLowerCase().includes(keyword)
       );
     }
     
@@ -356,58 +301,25 @@ const AnalysisPage = () => {
     navigate(`/analysis/${projectId}/report`);
   };
 
-  // 重新分析 - 不跳转页面，直接在当前页面重新开始分析
   const handleRestartAnalysis = (project) => {
+    if (project.isIncomplete) {
+      message.info('请先完成项目创建向导');
+      return;
+    }
     Modal.confirm({
       title: '重新分析确认',
       content: `确定要重新分析项目 "${project.name}" 吗？这将清空之前的分析结果并重新开始。`,
       okText: '确认',
       cancelText: '取消',
-      onOk: () => {
-        setProjects(prev => prev.map(p => {
-          if (p.id === project.id) {
-            return {
-              ...p,
-              status: ANALYSIS_STATUS.IN_PROGRESS,
-              progress: 0,
-              updateTime: new Date().toLocaleString()
-            };
-          }
-          return p;
-        }));
-        message.success(`项目 "${project.name}" 已开始重新分析`);
-        
-        // 模拟分析进度
-        const interval = setInterval(() => {
-          setProjects(prev => {
-            const targetProject = prev.find(p => p.id === project.id);
-            if (!targetProject || targetProject.status !== ANALYSIS_STATUS.IN_PROGRESS) {
-              clearInterval(interval);
-              return prev;
-            }
-            
-            const newProgress = Math.min(targetProject.progress + Math.floor(Math.random() * 10) + 5, 99);
-            if (newProgress >= 99) {
-              clearInterval(interval);
-              // 分析完成
-              setTimeout(() => {
-                setProjects(p => p.map(proj => 
-                  proj.id === project.id 
-                    ? { ...proj, status: ANALYSIS_STATUS.COMPLETED, progress: 100, updateTime: new Date().toLocaleString() }
-                    : proj
-                ));
-                message.success(`项目 "${project.name}" 分析完成`);
-              }, 1000);
-            }
-            
-            return prev.map(p => 
-              p.id === project.id 
-                ? { ...p, progress: newProgress, updateTime: new Date().toLocaleString() }
-                : p
-            );
-          });
-        }, 2000);
-      }
+      onOk: async () => {
+        try {
+          await analysisApi.startAnalysis(project.id);
+          message.success(`项目 "${project.name}" 已开始重新分析`);
+          await loadProjects();
+        } catch {
+          /* 拦截器已提示 */
+        }
+      },
     });
   };
 
@@ -428,20 +340,24 @@ const AnalysisPage = () => {
     setDeleteModalVisible(true);
   };
 
-  // 确认删除
   const confirmDelete = async () => {
-    if (currentDeleteProject) {
-      try {
+    if (!currentDeleteProject) return;
+    try {
+      if (currentDeleteProject.isIncomplete) {
+        const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
+        const filtered = savedProjects.filter((p) => p.id !== currentDeleteProject.id);
+        localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(filtered));
+      } else {
         await analysisApi.deleteProject(currentDeleteProject.id);
-        setProjects(projects.filter(p => p.id !== currentDeleteProject.id));
-        message.success(`项目 "${currentDeleteProject.name}" 已删除`);
-      } catch (error) {
-        console.error('删除项目失败:', error);
-        message.error(`删除失败: ${error.message || '未知错误'}`);
       }
+      setProjects(projects.filter((p) => p.id !== currentDeleteProject.id));
+      message.success(`项目 "${currentDeleteProject.name}" 已删除`);
+    } catch {
+      /* 拦截器已提示 */
+    } finally {
+      setDeleteModalVisible(false);
+      setCurrentDeleteProject(null);
     }
-    setDeleteModalVisible(false);
-    setCurrentDeleteProject(null);
   };
 
   // 批量删除
@@ -457,16 +373,27 @@ const AnalysisPage = () => {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
+        const incompleteIds = selectedProjects.filter((id) => {
+          const p = projects.find((proj) => proj.id === id);
+          return p?.isIncomplete;
+        });
         try {
-          await Promise.all(selectedProjects.map(id => analysisApi.deleteProject(id)));
-          setProjects(projects.filter(p => !selectedProjects.includes(p.id)));
+          for (const id of selectedProjects) {
+            if (incompleteIds.includes(id)) continue;
+            await analysisApi.deleteProject(id);
+          }
+          if (incompleteIds.length > 0) {
+            const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
+            const filtered = savedProjects.filter((p) => !incompleteIds.includes(p.id));
+            localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(filtered));
+          }
+          setProjects(projects.filter((p) => !selectedProjects.includes(p.id)));
           setSelectedProjects([]);
           message.success('批量删除成功');
-        } catch (error) {
-          console.error('批量删除失败:', error);
-          message.error(`批量删除失败: ${error.message || '未知错误'}`);
+        } catch {
+          /* 拦截器已提示 */
         }
-      }
+      },
     });
   };
   
@@ -484,48 +411,37 @@ const AnalysisPage = () => {
     setDeleteTemplateModalVisible(true);
   };
   
-  // 确认删除模板
   const confirmDeleteTemplate = async () => {
-    if (currentTemplate) {
-      try {
-        await templateApi.deleteTemplate(currentTemplate.id);
-        await fetchTemplates();
-        message.success(`模板 "${currentTemplate.name}" 已删除`);
-      } catch (error) {
-        console.error('删除模板失败:', error);
-        message.error(`删除失败: ${error.message || '未知错误'}`);
-      }
+    if (!currentTemplate) return;
+    try {
+      await templateApi.deleteTemplate(currentTemplate.id);
+      await loadTemplates();
+      message.success(`模板 "${currentTemplate.name}" 已删除`);
+    } catch {
+      /* 拦截器已提示 */
+    } finally {
+      setDeleteTemplateModalVisible(false);
+      setCurrentTemplate(null);
     }
-    setDeleteTemplateModalVisible(false);
-    setCurrentTemplate(null);
   };
-  
-  // 上传模板
+
   const handleUploadTemplate = async (values) => {
     setUploading(true);
-
     try {
-      const imageFile = values.templateImage?.[0]?.originFileObj;
-      if (!imageFile) {
-        throw new Error('请选择模板图片');
+      const file = values.templateImage?.fileList?.[0]?.originFileObj
+        || values.templateImage?.[0]?.originFileObj;
+      if (!file) {
+        message.error('请选择模板图片');
+        return;
       }
-
-      // 调用后端API创建模板
-      await templateApi.createTemplate({
-        name: values.name,
-        imageFile: imageFile
-      });
-
-      // 刷新模板列表
-      await fetchTemplates();
-
-      setUploading(false);
+      const created = await templateApi.createTemplate({ name: values.name, imageFile: file });
+      await loadTemplates();
       setUploadModalVisible(false);
       uploadForm.resetFields();
       message.success('模板上传成功');
-    } catch (error) {
-      console.error('上传模板失败:', error);
-      message.error(`上传失败: ${error.message || '未知错误'}`);
+    } catch {
+      /* 拦截器已提示 */
+    } finally {
       setUploading(false);
     }
   };
@@ -679,13 +595,13 @@ const AnalysisPage = () => {
     },
     {
       title: '模板照片',
-      dataIndex: 'templateImageKey',
-      key: 'templateImageKey',
+      dataIndex: 'hasImage',
+      key: 'templateImage',
       width: 120,
-      render: (imageKey, record) => (
-        <div style={{
-          width: 80,
-          height: 80,
+      render: (_, record) => (
+        <div style={{ 
+          width: 80, 
+          height: 80, 
           background: colors.neutralLight,
           borderRadius: 4,
           display: 'flex',
@@ -693,24 +609,15 @@ const AnalysisPage = () => {
           justifyContent: 'center',
           overflow: 'hidden'
         }}>
-          {record.imageAvailable ? (
-            <AuthenticatedImage
-              url={templateApi.getTemplateImageUrl(record.id)}
+          {record.hasImage ? (
+            <AuthenticatedTemplateImage
+              templateId={record.id}
               alt="模板"
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              onError={(e) => {
-                e.target.style.display = 'none';
-                e.target.nextSibling.style.display = 'block';
-              }}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
-          ) : null}
-          <FileOutlined
-            style={{
-              fontSize: 24,
-              color: colors.textTertiary,
-              display: record.imageAvailable ? 'none' : 'block'
-            }}
-          />
+          ) : (
+            <FileOutlined style={{ fontSize: 24, color: colors.textTertiary }} />
+          )}
         </div>
       )
     },
@@ -1159,7 +1066,6 @@ const AnalysisPage = () => {
             dataSource={templatePaginatedData}
             rowKey="id"
             scroll={{ x: TABLE_SCROLL_X }}
-            loading={templateLoading}
             pagination={{
               current: templateCurrentPage,
               pageSize: templatePageSize,
@@ -1283,7 +1189,7 @@ const AnalysisPage = () => {
             </div>
             <div style={{ 
               width: 300, 
-              height: 300,
+              height: 300, 
               margin: '0 auto',
               background: colors.neutralLight,
               borderRadius: 8,
@@ -1292,24 +1198,15 @@ const AnalysisPage = () => {
               justifyContent: 'center',
               overflow: 'hidden'
             }}>
-              {currentTemplate.imageAvailable ? (
-                <AuthenticatedImage
-                  url={templateApi.getTemplateImageUrl(currentTemplate.id)}
+              {currentTemplate.hasImage ? (
+                <AuthenticatedTemplateImage
+                  templateId={currentTemplate.id}
                   alt="模板照片"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.nextSibling.style.display = 'block';
-                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
-              ) : null}
-              <FileOutlined
-                style={{
-                  fontSize: 64,
-                  color: colors.textTertiary,
-                  display: currentTemplate.imageAvailable ? 'none' : 'block'
-                }}
-              />
+              ) : (
+                <FileOutlined style={{ fontSize: 64, color: colors.textTertiary }} />
+              )}
             </div>
           </div>
         )}

@@ -4,6 +4,9 @@ import com.coloranalysisbackend.model.Template;
 import com.coloranalysisbackend.repository.ProjectRepository;
 import com.coloranalysisbackend.repository.TemplateRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -106,6 +109,32 @@ public class TemplateService {
             Files.deleteIfExists(imgPath);
         }
         templateRepository.deleteById(id);
+    }
+
+    public Resource loadTemplateImageResource(String id) throws IOException {
+        Template t = templateRepository.findById(id).orElse(null);
+        if (t == null || t.getTemplateImageKey() == null) {
+            return null;
+        }
+        Path path = Paths.get(t.getTemplateImageKey());
+        if (!Files.exists(path)) {
+            return null;
+        }
+        return new FileSystemResource(path);
+    }
+
+    public MediaType guessMediaType(String fileName) {
+        if (fileName == null) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".png")) {
+            return MediaType.IMAGE_PNG;
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return MediaType.IMAGE_JPEG;
+        }
+        return MediaType.APPLICATION_OCTET_STREAM;
     }
 
     // ---------- private helpers ----------

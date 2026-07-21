@@ -2,9 +2,9 @@
 # 一次性执行 P0 + P1 API 用例（手工测试自动化）
 set -euo pipefail
 API="${API_BASE:-http://localhost:8080}"
-FRONTEND="${FRONTEND_BASE:-http://localhost:3001}"
+FRONTEND="${FRONTEND_BASE:-http://localhost:3000}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FIXTURE="$(cd "$(dirname "$0")/.." && pwd)/fixtures/images/sample.png"
+FIXTURE="$(cd "$(dirname "$0")/.." && pwd)/fixtures/images/02_01_00.jpg"
 CORRECTION_FIXTURE="${CORRECTION_FIXTURE:-$REPO_ROOT/algorithm-service/model_image.jpg}"
 ADMIN_ID="${ADMIN_ID:-$(docker exec color-mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD:-123456}" -N -e "SELECT id FROM color_analysis.users WHERE username='admin' LIMIT 1" 2>/dev/null || true)}"
 MODEL_PATH="${MODEL_PATH:-/app/storage/test-assets/model_image.jpg}"
@@ -152,6 +152,14 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -H "$AUTH_H" -F "image=@$FIXTURE" 
 [[ "$code" == "200" ]] && record ALG-04 PASS "hsv $code" || record ALG-04 FAIL "hsv $code"
 
 record ALG-05 SKIP "destructive (stop python); not run"
+
+# Seed shared storage for PRJ-04 full pipeline run
+if docker ps --filter name=color-api --filter status=running -q | grep -q .; then
+  docker exec color-api mkdir -p /app/storage/test-assets
+  docker cp "$REPO_ROOT/algorithm-service/model_image.jpg" color-api:/app/storage/test-assets/model_image.jpg
+  docker cp "$REPO_ROOT/algorithm-service/butterfly.json" color-api:/app/storage/test-assets/butterfly.json
+  docker cp "$REPO_ROOT/algorithm-service/edge.json" color-api:/app/storage/test-assets/edge.json
+fi
 
 # --- P1 PRJ ---
 TPL_JSON=$([[ -n "$TPL_ID" ]] && echo "\"$TPL_ID\"" || echo "null")

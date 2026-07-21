@@ -4,12 +4,15 @@ import com.coloranalysisbackend.model.Template;
 import com.coloranalysisbackend.service.TemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.List;
 
 @RestController
@@ -74,6 +77,25 @@ public class TemplateController {
         } catch (IOException ex) {
             return ResponseEntity.internalServerError().body(ex.getMessage());
         }
+    }
+
+    /** 下载模板图片 */
+    @GetMapping("/{id}/image/file")
+    @Operation(summary = "下载模板图片")
+    public ResponseEntity<Resource> imageFile(@PathVariable("id") String id) throws IOException {
+        Resource resource = templateService.loadTemplateImageResource(id);
+        if (resource == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Template t = templateService.getTemplate(id);
+        MediaType type = templateService.guessMediaType(
+                t != null && t.getTemplateImageKey() != null
+                        ? Paths.get(t.getTemplateImageKey()).getFileName().toString()
+                        : null);
+        return ResponseEntity.ok()
+                .contentType(type)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template\"")
+                .body(resource);
     }
 
     /** 单独上传/替换模板图片 */

@@ -21,7 +21,8 @@ import topbar from "../../styles/topbar.module.css";
 import logoMedia from "../../styles/logo-media.module.css";
 
 // 会话管理常量（与LoginPage保持一致）
-import { clearLogoutTimer, clearSession } from '../../utils/session';
+import { authApi } from '../../api/auth';
+import { clearSession, clearLogoutTimer } from '../../utils/session';
 
 const Topbar = ({
   title = APP_NAME,
@@ -55,22 +56,22 @@ const Topbar = ({
   };
 
   // 处理修改密码
-  const handleChangePassword = (values) => {
+  const handleChangePassword = async (values) => {
     const { oldPassword, newPassword } = values;
-    console.log('修改密码:', { oldPassword, newPassword });
-    
-    // TODO: 调用API验证旧密码并更新新密码
-    // 这里模拟旧密码验证失败的情况
-    if (oldPassword !== '123456') {
-      message.error('旧密码验证失败，请重新输入');
-      return;
+    try {
+      await authApi.changePassword({ oldPassword, newPassword });
+      message.success('密码修改成功，请使用新密码重新登录');
+      passwordForm.resetFields();
+      setIsPasswordModalVisible(false);
+      clearLogoutTimer();
+      clearSession();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        message.error('旧密码验证失败，请重新输入');
+      }
     }
-    
-    message.success('密码修改成功，请使用新密码重新登录');
-    passwordForm.resetFields();
-    setIsPasswordModalVisible(false);
-    
-    // 可选：修改密码后退出登录并 clearSession()
   };
 
   // 头像上传前检查

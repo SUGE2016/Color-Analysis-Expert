@@ -6,6 +6,7 @@ import com.coloranalysisbackend.security.CustomUserDetails;
 import com.coloranalysisbackend.security.JwtUtil;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -63,6 +64,19 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalArgumentException("admin user not found"));
         admin.setRole("ROLE_ADMIN");
         userRepository.save(admin);
+    }
+
+    public void changePassword(String username, String oldPassword, String newPassword) {
+        if (newPassword == null || newPassword.length() < 6) {
+            throw new IllegalArgumentException("新密码长度不能少于6位");
+        }
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        if (!passwordEncoder.matches(oldPassword, user.getPasswordHash())) {
+            throw new BadCredentialsException("旧密码不正确");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
     }
 
     public record LoginResult(String token, String userId, String username) {}
