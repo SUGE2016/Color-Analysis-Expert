@@ -72,8 +72,20 @@ export default function ImageCorrectionPage() {
   const resultCanvasRef = useRef(null);
   const imgRef = useRef(null);
   const uploadedFileRef = useRef(null);
+  const correctedImageUrlRef = useRef(null);
   const [imgSize, setImgSize] = useState(null);
+  const [correctedImageUrl, setCorrectedImageUrl] = useState(null);
   const containerRef = useRef(null);
+
+  const clearCorrectedImageUrl = useCallback(() => {
+    if (correctedImageUrlRef.current) {
+      URL.revokeObjectURL(correctedImageUrlRef.current);
+      correctedImageUrlRef.current = null;
+    }
+    setCorrectedImageUrl(null);
+  }, []);
+
+  useEffect(() => () => clearCorrectedImageUrl(), [clearCorrectedImageUrl]);
 
   // 处理图片上传
   const handleImageUpload = (file) => {
@@ -85,6 +97,7 @@ export default function ImageCorrectionPage() {
         imgRef.current = img;
         setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
         setHasUploadedImage(true);
+        clearCorrectedImageUrl();
         setIsCorrected(false);
         message.success("图片上传成功");
       };
@@ -403,6 +416,7 @@ export default function ImageCorrectionPage() {
     setImgSize(null);
     imgRef.current = null;
     uploadedFileRef.current = null;
+    clearCorrectedImageUrl();
     setIsCorrected(false);
     setReferencePoints(DEFAULT_REFERENCE_POINTS[correctionMode]);
     setRotation(0);
@@ -413,6 +427,14 @@ export default function ImageCorrectionPage() {
   // 下载矫正后的图像
   const downloadCorrectedImage = () => {
     const canvas = resultCanvasRef.current;
+    if (correctedImageUrl) {
+      const link = document.createElement("a");
+      link.download = `corrected-image-${Date.now()}.png`;
+      link.href = correctedImageUrl;
+      link.click();
+      message.success("图像已下载");
+      return;
+    }
     if (!canvas || !isCorrected) {
       message.warning("请先应用矫正");
       return;
@@ -564,45 +586,23 @@ export default function ImageCorrectionPage() {
         throw new Error(errorText || '矫正失败，未返回图片数据');
       }
 
-      // 将返回的图片数据显示在结果画布上
-      const canvas = resultCanvasRef.current;
-      if (canvas && response) {
-        const dpr = window.devicePixelRatio || 1;
-
-        // 创建Image对象加载返回的图片
-        const correctedImg = new Image();
-        correctedImg.onload = () => {
-          const cssW = correctedImg.width;
-          const cssH = correctedImg.height;
-
-          canvas.width = Math.round(cssW * dpr);
-          canvas.height = Math.round(cssH * dpr);
-          canvas.style.width = `${cssW}px`;
-          canvas.style.height = `${cssH}px`;
-
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, cssW, cssH);
-            ctx.drawImage(correctedImg, 0, 0, cssW, cssH);
-          }
-
-          setIsCorrected(true);
-          setIsAutoCorrecting(false);
-          message.success(`自动矫正完成！使用模板: ${selectedTemplate.name}`);
-        };
-        correctedImg.onerror = () => {
-          setIsAutoCorrecting(false);
-          message.error('矫正后的图片加载失败');
-        };
-
-        // response是Blob或ArrayBuffer，转换为URL
-        const blob = response instanceof Blob ? response : new Blob([response]);
-        correctedImg.src = URL.createObjectURL(blob);
-      } else {
+      const blob = response instanceof Blob ? response : new Blob([response], { type: 'image/png' });
+      const correctedImg = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      correctedImg.onload = () => {
+        clearCorrectedImageUrl();
+        correctedImageUrlRef.current = objectUrl;
+        setCorrectedImageUrl(objectUrl);
+        setIsCorrected(true);
         setIsAutoCorrecting(false);
-        message.error('矫正失败，未返回图片数据');
-      }
+        message.success(`自动矫正完成！使用模板: ${selectedTemplate.name}`);
+      };
+      correctedImg.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        setIsAutoCorrecting(false);
+        message.error('矫正后的图片加载失败');
+      };
+      correctedImg.src = objectUrl;
     } catch (error) {
       console.error('自动矫正失败:', error);
       setIsAutoCorrecting(false);
@@ -833,6 +833,18 @@ export default function ImageCorrectionPage() {
                       请先进行图像矫正
                     </Text>
                   </div>
+                ) : correctedImageUrl ? (
+                  <img
+                    src={correctedImageUrl}
+                    alt="矫正结果"
+                    style={{
+                      borderRadius: 8,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain'
+                    }}
+                  />
                 ) : (
                   <canvas
                     ref={resultCanvasRef}

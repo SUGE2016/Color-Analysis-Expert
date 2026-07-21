@@ -25,6 +25,7 @@ const DatasetDetailPage = () => {
   const [uploading, setUploading] = useState(false);
   const [previewId, setPreviewId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [duplicateModal, setDuplicateModal] = useState({ visible: false, file: null });
 
   const loadImages = useCallback(async () => {
     const list = await datasetApi.getDatasetImages(datasetId);
@@ -55,9 +56,58 @@ const DatasetDetailPage = () => {
   const goBack = () => navigate(`/dataset/group/${groupId}`);
 
   const handleUpload = async ({ file, onSuccess, onError }) => {
+    const existingImage = images.find(img => img.fileName === file.name);
+    
+    if (existingImage) {
+      setDuplicateModal({ visible: true, file, onSuccess, onError });
+      return;
+    }
+    
+    await performUpload(file, onSuccess, onError);
+  };
+
+  const handleDuplicateAction = async (action) => {
+    const { file, onSuccess, onError } = duplicateModal;
+    setDuplicateModal({ visible: false, file: null, onSuccess: null, onError: null });
+    
+    if (action === 'skip') {
+      return;
+    }
+    
+    if (action === 'rename') {
+      const existingNames = images.map(img => img.fileName);
+      const newFileName = generateUniqueFileName(file.name, existingNames);
+      const renamedFile = new File([file], newFileName, { type: file.type });
+      await performUpload(renamedFile, onSuccess, onError);
+      return;
+    }
+    
+    if (action === 'overwrite') {
+      await performUpload(file, onSuccess, onError, true);
+      return;
+    }
+  };
+
+  const generateUniqueFileName = (fileName, existingNames) => {
+    const nameParts = fileName.split('.');
+    const ext = nameParts.length > 1 ? nameParts.pop() : '';
+    const baseName = nameParts.join('.');
+    
+    let counter = 1;
+    let newName = fileName;
+    
+    while (existingNames.includes(newName)) {
+      newName = `${baseName} (${counter}).${ext}`;
+      counter++;
+    }
+    
+    return newName;
+  };
+
+  const performUpload = async (file, onSuccess, onError, overwrite = false) => {
     setUploading(true);
     try {
-      await datasetApi.uploadDatasetImage(datasetId, file);
+      await datasetApi.uploadDatasetImage(datasetId, file, { overwrite });
       onSuccess?.();
       await loadImages();
       const ds = await datasetApi.getDatasetDetail(datasetId);
@@ -114,6 +164,14 @@ const DatasetDetailPage = () => {
     );
   };
 
+  const toggleSelectAll = () => {
+    if (selectedIds.length === images.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(images.map(img => img.id));
+    }
+  };
+
   if (loading) {
     return (
       <div className={listPage.page} style={{ textAlign: 'center', padding: 80 }}>
@@ -149,6 +207,11 @@ const DatasetDetailPage = () => {
           {dataset.scene && <Tag color="blue">{dataset.scene}</Tag>}
         </div>
         <div className={listPage.headerActions}>
+          {images.length > 0 && (
+            <Button onClick={toggleSelectAll}>
+              {selectedIds.length === images.length ? '取消全选' : '全选'}
+            </Button>
+          )}
           {selectedIds.length > 0 && (
             <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
               删除选中 ({selectedIds.length})
@@ -248,6 +311,27 @@ const DatasetDetailPage = () => {
             style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain' }}
           />
         )}
+      </Modal>
+
+      <Modal
+        title="检测到同名文件"
+        open={duplicateModal.visible}
+        onCancel={() => setDuplicateModal({ visible: false, file: null, onSuccess: null, onError: null })}
+        footer={null}
+        centered
+      >
+        <p>检测到同名文件 {duplicateModal.file?.name}，请选择操作：</p>
+        <Space style={{ marginTop: 16 }}>
+          <Button onClick={() => handleDuplicateAction('skip')}>
+            跳过
+          </Button>
+          <Button onClick={() => handleDuplicateAction('rename')}>
+            重命名
+          </Button>
+          <Button type="primary" danger onClick={() => handleDuplicateAction('overwrite')}>
+            覆盖
+          </Button>
+        </Space>
       </Modal>
     </div>
   );

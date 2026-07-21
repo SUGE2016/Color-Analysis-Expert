@@ -56,7 +56,7 @@ export default function EdgeDetectionPage() {
       setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
       setHasUploadedImage(true);
     };
-    img.src = testImage;
+    img.src = null;
   }, []);
 
   // 自动缩放图片以适应容器
@@ -693,7 +693,7 @@ export default function EdgeDetectionPage() {
                 <div style={styles.emptyState}>
                   <UploadOutlined style={{ fontSize: 48, color: "#ccc" }} />
                   <Text type="secondary" style={{ marginTop: 16 }}>
-                    请先上传图片或等待默认图片加载
+                    请先上传图片
                   </Text>
                 </div>
               ) : (

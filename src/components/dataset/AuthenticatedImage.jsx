@@ -25,7 +25,8 @@ const AuthenticatedImage = ({ datasetId, imageId, url, alt, style, className, fa
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setSrc(objectUrl);
-      } catch {
+      } catch (error) {
+        // 静默处理 404 错误，不抛出到控制台
         if (!cancelled) setSrc(null);
       } finally {
         if (!cancelled) setLoading(false);

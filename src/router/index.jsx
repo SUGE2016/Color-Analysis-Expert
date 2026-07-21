@@ -18,6 +18,7 @@ import GlobalSummaryReportPage from "../pages/report/GlobalSummaryReportPage";
 import ToolboxPage from "../pages/ToolboxPage";
 import EdgeDetectionPage from "../pages/toolbox/EdgeDetectionPage";
 import ImageCorrectionPage from "../pages/toolbox/ImageCorrectionPage";
+import BackendLogsPage from "../pages/settings/BackendLogsPage";
 //import HelpPage from "../pages/HelpPage";
 //import SettingsPage from "../pages/SettingsPage";
 
@@ -59,6 +60,7 @@ const routesConfig = [
       { path: "toolbox", element: <ToolboxPage /> },
       { path: "toolbox/edge-detection", element: <EdgeDetectionPage /> },
       { path: "toolbox/image-correction", element: <ImageCorrectionPage /> },
+      { path: "settings", element: <BackendLogsPage /> },
       //{ path: "help", element: <HelpPage /> },
       //{ path: "settings", element: <SettingsPage /> },
       

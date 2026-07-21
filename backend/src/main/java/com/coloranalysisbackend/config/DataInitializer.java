@@ -18,6 +18,13 @@ public class DataInitializer implements CommandLineRunner {
             authService.register("admin", "admin123");
             System.out.println("created default admin user");
         } catch (Exception ignored) {
+            // User already exists, try to update role
+            try {
+                authService.updateAdminRole();
+                System.out.println("updated admin user role to ROLE_ADMIN");
+            } catch (Exception e) {
+                System.out.println("failed to update admin role: " + e.getMessage());
+            }
         }
     }
 }

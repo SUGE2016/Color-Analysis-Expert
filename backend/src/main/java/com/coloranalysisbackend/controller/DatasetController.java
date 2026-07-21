@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -67,12 +68,21 @@ public class DatasetController {
 
     @PostMapping(value = "/{id}/images/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "上传数据集图片")
-    public ResponseEntity<Image> uploadImage(@PathVariable("id") String id,
-                                             @RequestParam("file") MultipartFile file,
-                                             @RequestParam(value = "subjectCode", required = false) String subjectCode,
-                                             @RequestParam(value = "label", required = false) String label) throws IOException {
-        Image img = datasetService.storeImage(id, file, subjectCode, label);
-        return ResponseEntity.ok(img);
+    public ResponseEntity<?> uploadImage(@PathVariable("id") String id,
+                                         @RequestParam("file") MultipartFile file,
+                                         @RequestParam(value = "subjectCode", required = false) String subjectCode,
+                                         @RequestParam(value = "label", required = false) String label,
+                                         @RequestParam(value = "overwrite", required = false, defaultValue = "false") boolean overwrite) {
+        try {
+            Image img = datasetService.storeImage(id, file, subjectCode, label, overwrite);
+            return ResponseEntity.ok(img);
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage());
+        } catch (IOException ex) {
+            return ResponseEntity.internalServerError().body("failed to store image: " + ex.getMessage());
+        }
     }
 
     @GetMapping("/{id}/images/{imageId}/file")
@@ -132,6 +142,17 @@ public class DatasetController {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (IllegalStateException ex) {
             return ResponseEntity.status(409).body(ex.getMessage());
+        }
+    }
+
+    @DeleteMapping("/{id}/force")
+    @Operation(summary = "强制删除数据集（同时删除引用的项目）")
+    public ResponseEntity<?> forceDelete(@PathVariable("id") String id) {
+        try {
+            datasetService.forceDeleteDataset(id);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 

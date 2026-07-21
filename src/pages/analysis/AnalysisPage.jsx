@@ -18,6 +18,7 @@ import { buildYearFilterOptions, extractAcademicYears } from '../../utils/academ
 import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
 import TableWrap from '../../components/table/TableWrap';
 import { templateApi } from '../../api/template';
+import { analysisApi } from '../../api/analysis';
 import AuthenticatedImage from '../../components/dataset/AuthenticatedImage';
 
 const { Title, Text } = Typography;
@@ -148,46 +149,9 @@ const initialAnalysisProjects = [
 
 const AnalysisPage = () => {
   const navigate = useNavigate();
-  
-  // 从 localStorage 加载未完成的创建项目并合并到初始数据
-  const loadIncompleteProjects = () => {
-    try {
-      const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
-      const incompleteProjects = savedProjects.map(p => ({
-        id: p.id,
-        name: p.name || '未命名项目',
-        targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0) || 0,
-        createTime: p.lastSaved || new Date().toLocaleString(),
-        updateTime: p.lastSaved || new Date().toLocaleString(),
-        year: new Date().getFullYear(),
-        status: ANALYSIS_STATUS.NOT_STARTED,
-        progress: 0,
-        datasetName: p.selectedDatasets?.[0]?.name || '未选择数据集',
-        datasetCount: p.selectedDatasets?.length || 0,
-        creator: '当前用户',
-        description: p.description || '创建途中退出的项目',
-        isIncomplete: true // 标记为未完成项目
-      }));
-      return incompleteProjects;
-    } catch (e) {
-      console.error('加载未完成项目失败:', e);
-      return [];
-    }
-  };
-  
-  const [projects, setProjects] = useState(() => {
-    const incompleteProjects = loadIncompleteProjects();
-    // 合并初始项目和未完成项目，避免ID重复
-    const merged = [...initialAnalysisProjects];
-    incompleteProjects.forEach(ip => {
-      if (!merged.find(p => p.id === ip.id)) {
-        merged.push(ip);
-      }
-    });
-    return merged;
-  });
-  
-  const [loading] = useState(false);
+
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   // 筛选状态
   const [searchValue, setSearchValue] = useState('');
@@ -232,24 +196,32 @@ const AnalysisPage = () => {
   const [uploadForm] = Form.useForm();
   const [uploading, setUploading] = useState(false);
 
-  // 模拟状态实时更新
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setProjects(prev => prev.map(project => {
-        if (project.status === ANALYSIS_STATUS.IN_PROGRESS && project.progress < 100) {
-          const newProgress = Math.min(project.progress + Math.floor(Math.random() * 5), 99);
-          return {
-            ...project,
-            progress: newProgress,
-            updateTime: new Date().toLocaleString()
-          };
-        }
-        return project;
-      }));
-    }, 5000);
-
-    return () => clearInterval(interval);
+  // 获取分析项目列表
+  const fetchProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await analysisApi.getProjects();
+      const projectList = response.data || [];
+      setProjects(projectList);
+    } catch (error) {
+      console.error('获取分析项目失败:', error);
+      message.error('获取分析项目失败');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // 组件加载时获取项目列表
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  // 格式化日期为年-月-日
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toISOString().split('T')[0];
+  };
 
   // 获取模板列表
   const fetchTemplates = useCallback(async () => {
@@ -457,23 +429,23 @@ const AnalysisPage = () => {
   };
 
   // 确认删除
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (currentDeleteProject) {
-      // 如果是未完成项目，也从localStorage中删除
-      if (currentDeleteProject.isIncomplete) {
-        const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
-        const filtered = savedProjects.filter(p => p.id !== currentDeleteProject.id);
-        localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(filtered));
+      try {
+        await analysisApi.deleteProject(currentDeleteProject.id);
+        setProjects(projects.filter(p => p.id !== currentDeleteProject.id));
+        message.success(`项目 "${currentDeleteProject.name}" 已删除`);
+      } catch (error) {
+        console.error('删除项目失败:', error);
+        message.error(`删除失败: ${error.message || '未知错误'}`);
       }
-      setProjects(projects.filter(p => p.id !== currentDeleteProject.id));
-      message.success(`项目 "${currentDeleteProject.name}" 已删除`);
     }
     setDeleteModalVisible(false);
     setCurrentDeleteProject(null);
   };
 
   // 批量删除
-  const handleBatchDelete = () => {
+  const handleBatchDelete = async () => {
     if (selectedProjects.length === 0) {
       message.warning('请至少选择一个项目');
       return;
@@ -484,20 +456,16 @@ const AnalysisPage = () => {
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
-      onOk: () => {
-        // 批量删除时也从localStorage中移除未完成项目
-        const incompleteIds = selectedProjects.filter(id => {
-          const p = projects.find(proj => proj.id === id);
-          return p?.isIncomplete;
-        });
-        if (incompleteIds.length > 0) {
-          const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
-          const filtered = savedProjects.filter(p => !incompleteIds.includes(p.id));
-          localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(filtered));
+      onOk: async () => {
+        try {
+          await Promise.all(selectedProjects.map(id => analysisApi.deleteProject(id)));
+          setProjects(projects.filter(p => !selectedProjects.includes(p.id)));
+          setSelectedProjects([]);
+          message.success('批量删除成功');
+        } catch (error) {
+          console.error('批量删除失败:', error);
+          message.error(`批量删除失败: ${error.message || '未知错误'}`);
         }
-        setProjects(projects.filter(p => !selectedProjects.includes(p.id)));
-        setSelectedProjects([]);
-        message.success('批量删除成功');
       }
     });
   };
@@ -647,25 +615,22 @@ const AnalysisPage = () => {
       title: '创建时间',
       dataIndex: 'createTime',
       key: 'createTime',
-      width: 160,
+      width: 120,
       sorter: true,
       onHeaderCell: () => ({
         onClick: () => handleSort('createTime')
       }),
       render: (time) => (
-        <Space>
-          <ClockCircleOutlined style={{ color: colors.textTertiary }} />
-          <Text style={{ fontSize: 13 }}>{time}</Text>
-        </Space>
+        <Text style={{ fontSize: 13 }}>{formatDate(time)}</Text>
       )
     },
     {
       title: '更新时间',
       dataIndex: 'updateTime',
       key: 'updateTime',
-      width: 160,
+      width: 120,
       render: (time) => (
-        <Text type="secondary" style={{ fontSize: 13 }}>{time}</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>{formatDate(time)}</Text>
       )
     },
     buildActionColumn({

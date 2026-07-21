@@ -17,7 +17,7 @@ export const toolApi = {
       formData.append('config', JSON.stringify(config));
     }
 
-    return uploadClient.post('/images/canny', formData, { skipAuth: true });
+    return uploadClient.post('/images/canny', formData);
   },
 
   /**
@@ -26,7 +26,7 @@ export const toolApi = {
    * @returns {Promise} 校正后的图片
    */
   alignImage: (formData) => {
-    return uploadClient.post('/images/correction/align', formData, { responseType: 'blob', skipAuth: true });
+    return uploadClient.post('/images/correction/align', formData, { responseType: 'blob' });
   },
 
   getRegionAtPoint: (imageId, x, y) => {
@@ -49,7 +49,7 @@ export const toolApi = {
    * @returns {Promise} 合并后的多边形
    */
   mergePolygons: (polygons) => {
-    return uploadClient.post('/images/polygon/merge', { polygons }, { skipAuth: true });
+    return uploadClient.post('/images/polygon/merge', { polygons });
   }
 };
 

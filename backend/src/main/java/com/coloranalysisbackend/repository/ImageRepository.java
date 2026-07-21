@@ -10,5 +10,7 @@ import java.util.List;
 public interface ImageRepository extends JpaRepository<Image, String> {
     List<Image> findByDatasetId(String datasetId);
 
+    List<Image> findByDatasetIdAndFileName(String datasetId, String fileName);
+
     long countByDatasetId(String datasetId);
 }

@@ -7,10 +7,10 @@ COPY backend/src ./src
 
 RUN mvn -B package -DskipTests -T 1C -Dmaven.test.skip=true
 
-FROM eclipse-temurin:17-jre-jammy
+FROM maven:3.9-eclipse-temurin-17
 
 WORKDIR /app
-RUN mkdir -p /app/storage
+RUN mkdir -p /app/storage/logs
 
 COPY --from=build /app/target/*.jar /app/app.jar
 

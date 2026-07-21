@@ -174,10 +174,12 @@ const GroupListPage = () => {
               数据集分组管理
             </Title>
             <span className={listPage.pageMeta}>共 {filteredGroups.length} 个分组</span>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateModalVisible(true)}>
-              新建分组
-            </Button>
           </div>
+        </div>
+        <div className={listPage.headerActions}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateModalVisible(true)}>
+            新建分组
+          </Button>
         </div>
       </header>
 

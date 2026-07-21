@@ -37,7 +37,8 @@ public class AuthService {
         user.setId(UUID.randomUUID().toString());
         user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
-        user.setRole("ROLE_USER");
+        // Set admin role for admin user, otherwise default to USER
+        user.setRole("admin".equals(username) ? "ROLE_ADMIN" : "ROLE_USER");
         userRepository.save(user);
         return user.getId();
     }
@@ -55,6 +56,13 @@ public class AuthService {
     public User me(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+    }
+
+    public void updateAdminRole() {
+        User admin = userRepository.findByUsername("admin")
+                .orElseThrow(() -> new IllegalArgumentException("admin user not found"));
+        admin.setRole("ROLE_ADMIN");
+        userRepository.save(admin);
     }
 
     public record LoginResult(String token, String userId, String username) {}

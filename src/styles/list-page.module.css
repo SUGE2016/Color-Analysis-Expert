@@ -289,6 +289,10 @@
   min-width: 0;
 }
 
+.filterBar > .headerActions {
+  margin-left: auto;
+}
+
 .filterLabel {
   font-size: 0.875rem;
   color: #6b7280;

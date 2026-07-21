@@ -4,7 +4,6 @@ import {
   clearSession,
   getAuthToken,
   handleUnauthorized,
-  isAuthenticated,
 } from '../utils/session';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
@@ -22,17 +21,29 @@ function toastErrorOnce(msg) {
 function attachAuthInterceptors(client, { withUploadError = false } = {}) {
   client.interceptors.request.use(
     (config) => {
+      console.log('API Request:', config.method?.toUpperCase(), config.url);
+      console.log('Request data type:', config.data?.constructor?.name);
+      console.log('Request headers before:', config.headers);
+
       if (config.skipAuth) return config;
 
-      if (!isAuthenticated()) {
+      const token = getAuthToken();
+      if (!token) {
+        console.log('No auth token found, user may not be logged in');
         handleUnauthorized('登录已过期，请重新登录');
         return Promise.reject(new axios.Cancel('AUTH_EXPIRED'));
       }
 
-      const token = getAuthToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log('Authorization header set:', config.headers.Authorization.substring(0, 30) + '...');
+
+      // Remove Content-Type for FormData to let Axios set multipart/form-data with boundary
+      if (config.data instanceof FormData) {
+        delete config.headers['Content-Type'];
+        console.log('Removed Content-Type for FormData request');
       }
+
+      console.log('Request headers after:', config.headers);
       return config;
     },
     (error) => Promise.reject(error)
@@ -79,6 +90,9 @@ function attachAuthInterceptors(client, { withUploadError = false } = {}) {
           case 404:
             toastErrorOnce('请求的资源不存在');
             break;
+          case 409:
+            // Don't show toast for 409 - let the caller handle it
+            break;
           case 500:
             toastErrorOnce('服务器内部错误');
             break;
@@ -109,6 +123,8 @@ attachAuthInterceptors(apiClient);
 const uploadClient = axios.create({
   baseURL: process.env.REACT_APP_UPLOAD_BASE_URL || API_BASE_URL,
   timeout: 120000,
+  maxContentLength: Infinity,
+  maxBodyLength: Infinity,
 });
 
 attachAuthInterceptors(uploadClient, { withUploadError: true });

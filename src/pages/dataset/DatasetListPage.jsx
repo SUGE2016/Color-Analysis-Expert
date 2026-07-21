@@ -187,8 +187,33 @@ const DatasetListPage = () => {
       setIsDeleteModalVisible(false);
       setCurrentDataset(null);
       loadData();
-    } catch {
-      /* */
+    } catch (error) {
+      if (error.response?.status === 409) {
+        Modal.confirm({
+          title: '数据集被项目引用',
+          content: `该数据集被项目引用，是否强制删除？这将同时删除所有引用该数据集的项目，不可恢复。`,
+          okText: '强制删除',
+          cancelText: '取消',
+          okButtonProps: { danger: true },
+          onOk: async () => {
+            try {
+              await datasetApi.forceDeleteDataset(currentDataset.id);
+              message.success('数据集及相关项目已删除');
+              setIsDeleteModalVisible(false);
+              setCurrentDataset(null);
+              loadData();
+            } catch (forceError) {
+              if (forceError.response?.status === 401) {
+                message.error('登录已过期，请重新登录后重试');
+              } else {
+                message.error('强制删除失败：' + (forceError.response?.data?.message || forceError.message || '未知错误'));
+              }
+            }
+          },
+        });
+      } else {
+        message.error('删除失败：' + (error.response?.data?.message || error.message || '未知错误'));
+      }
     }
   };
 

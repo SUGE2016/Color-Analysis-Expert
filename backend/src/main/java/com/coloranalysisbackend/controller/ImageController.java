@@ -38,6 +38,7 @@ public class ImageController {
     @Operation(summary = "Canny边缘检测")
     public ResponseEntity<Map<String,Object>> canny(@RequestParam("file") MultipartFile file,
                                                     @RequestParam(value = "config", required = false) String config) throws IOException {
+        validateImageFile(file);
         byte[] input = file.getBytes();
         Map<String,Object> cfg = Map.of();
         if (config != null && !config.isBlank()) {
@@ -50,6 +51,7 @@ public class ImageController {
     @PostMapping(value = "/correction/points", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "检测图像矫正角点")
     public ResponseEntity<Map<String,Object>> detectPoints(@RequestParam("file") MultipartFile file) throws IOException {
+        validateImageFile(file);
         byte[] input = file.getBytes();
         Map<String,Object> result = pythonClientService.detectPoints(input);
         return ResponseEntity.ok(result);
@@ -60,6 +62,8 @@ public class ImageController {
     public ResponseEntity<?> align(@RequestParam("model") MultipartFile model,
                                    @RequestParam("image") MultipartFile image) throws IOException {
         try {
+            validateImageFile(model);
+            validateImageFile(image);
             byte[] out = pythonClientService.alignImage(model.getBytes(), image.getBytes());
             if (out == null || out.length == 0) {
                 return ResponseEntity.status(502).body(Map.of("error", "alignment failed: empty image response"));
@@ -69,6 +73,8 @@ public class ImageController {
                     .body(out);
         } catch (IllegalStateException ex) {
             return ResponseEntity.status(422).body(Map.of("error", ex.getMessage()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }
     }
 
@@ -76,10 +82,22 @@ public class ImageController {
     @Operation(summary = "执行HSV掩膜处理")
     public ResponseEntity<byte[]> hsvProcess(@RequestParam("image") MultipartFile image,
                                              @RequestParam("mask") MultipartFile mask) throws IOException {
+        validateImageFile(image);
+        validateImageFile(mask);
         byte[] out = pythonClientService.hsvProcess(image.getBytes(), mask.getBytes());
         return ResponseEntity.ok()
                 .contentType(MediaType.IMAGE_PNG)
                 .body(out);
+    }
+
+    private void validateImageFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("image file is required");
+        }
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.toLowerCase().startsWith("image/")) {
+            throw new IllegalArgumentException("only image files are supported");
+        }
     }
 
     /**

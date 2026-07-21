@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Input, Button, Progress, Card, Typography, Checkbox, message, Tag, Steps,
-  Upload, Space, Divider, Empty, Spin, Badge, Slider
+  Upload, Space, Divider, Empty, Spin, Badge, Slider, Modal
 } from 'antd';
 import {
   ArrowLeftOutlined, ArrowRightOutlined, UploadOutlined,
@@ -10,7 +10,7 @@ import {
   PictureOutlined, SettingOutlined,
   FileImageOutlined, AimOutlined, BgColorsOutlined, FolderOpenOutlined,
   LayoutOutlined, AreaChartOutlined, AppstoreOutlined,
-  ExperimentOutlined, PlayCircleOutlined, FileOutlined
+  ExperimentOutlined, PlayCircleOutlined, FileOutlined, CloseCircleOutlined, DownloadOutlined
 } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { colors, styles } from '../../components/common/constants';
@@ -47,6 +47,16 @@ const AnalysisCreatePage = () => {
   
   // 模板图片列表（需要在fetchTemplates之前声明）
   const [templateImages, setTemplateImages] = useState([]);
+
+  // 矫正图片预览状态
+  const [previewCorrectedImage, setPreviewCorrectedImage] = useState(null);
+
+  // 区域多选和重命名状态
+  const [selectedRegionIds, setSelectedRegionIds] = useState([]);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renamingRegionId, setRenamingRegionId] = useState(null);
+  const [newRegionName, setNewRegionName] = useState("");
 
   // 从URL参数或location state获取项目ID
   const projectId = urlProjectId || location.state?.projectId;
@@ -141,6 +151,7 @@ const AnalysisCreatePage = () => {
   const [edgeScale, setEdgeScale] = useState(0.5);
   const edgeCanvasRef = useRef(null);
   const edgeImgRef = useRef(null);
+  const edgeContainerRef = useRef(null);
   const [edgeImgSize, setEdgeImgSize] = useState(null);
 
   // 计算CSS尺寸 - 参照 EdgeDetectionPage
@@ -306,9 +317,19 @@ const AnalysisCreatePage = () => {
 
   const handlePrev = () => { if (currentStep > 0) setCurrentStep(currentStep - 1); };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setLoading(true);
-    setTimeout(() => {
+    
+    try {
+      // 检查前后端连接是否正常
+      try {
+        await analysisApi.getAnalysisProjects();
+      } catch (error) {
+        message.error('前后端连接失败，请检查网络连接或后端服务状态');
+        setLoading(false);
+        return;
+      }
+
       // 提交成功后清除本地存储中的临时项目
       const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
       const filtered = savedProjects.filter(p => p.id !== projectId);
@@ -317,7 +338,10 @@ const AnalysisCreatePage = () => {
       setLoading(false);
       message.success('分析项目创建成功，正在启动分析任务');
       navigate('/analysis');
-    }, 2000);
+    } catch (error) {
+      message.error('提交失败：' + (error.message || '未知错误'));
+      setLoading(false);
+    }
   };
 
   // ==================== 步骤1: 数据集和模板选择 ====================
@@ -449,7 +473,8 @@ const AnalysisCreatePage = () => {
                   name: img.fileName || img.name || img.id,
                   dataset: ds.name,
                   status: 'pending',
-                  corrected: null
+                  corrected: null,
+                  original: img.url || img.imageUrl || null
                 }]
           ));
           // 创建FormData，包含模板(model)和目标图片(image)
@@ -467,15 +492,50 @@ const AnalysisCreatePage = () => {
           formData.append('image', imageBlob, img.fileName || img.name || 'image.png');
           
           // 调用对齐API
-          const result = await toolApi.alignImage(formData);
-          const correctedUrl = URL.createObjectURL(result instanceof Blob ? result : new Blob([result]));
-          
-          // 更新矫正后的图片
-          setCorrectedImages(prev => prev.map(item => 
-            item.id === img.id
-              ? { ...item, corrected: correctedUrl, status: 'completed' }
-              : item
-          ));
+          try {
+            const result = await toolApi.alignImage(formData);
+            console.log('alignImage result type:', result?.constructor?.name, 'size:', result?.size);
+            const correctedBlob = result instanceof Blob ? result : new Blob([result]);
+            console.log('correctedBlob type:', correctedBlob?.constructor?.name, 'size:', correctedBlob?.size);
+
+            // 上传矫正后的图片到后端数据集
+            const correctedFileName = `corrected_${img.fileName || img.name || img.id}.png`;
+            console.log('Calling uploadDatasetImage with:', { datasetId: ds.id, blobSize: correctedBlob?.size, fileName: correctedFileName });
+            const uploadResponse = await datasetApi.uploadDatasetImage(
+              ds.id,
+              correctedBlob,
+              { subjectCode: 'corrected', fileName: correctedFileName }
+            );
+            
+            const correctedUrl = datasetApi.imageFileUrl(ds.id, uploadResponse.data.id);
+            
+            // 更新矫正后的图片
+            setCorrectedImages(prev => prev.map(item => 
+              item.id === img.id
+                ? { ...item, corrected: correctedUrl, correctedImageId: uploadResponse.data.id, status: 'completed' }
+                : item
+            ));
+          } catch (error) {
+            // 处理矫正失败的情况
+            console.error('图片矫正失败:', img.id, error);
+            console.error('Error details:', {
+              message: error.message,
+              response: error.response,
+              status: error.response?.status,
+              data: error.response?.data,
+              config: error.config
+            });
+            const errorMessage = error.response?.status === 422
+              ? '没有检测到角点，矫正失败'
+              : (error.message || '矫正失败');
+
+            setCorrectedImages(prev => prev.map(item =>
+              item.id === img.id
+                ? { ...item, status: 'failed', error: errorMessage }
+                : item
+            ));
+            message.warning(`${img.fileName || img.name}: ${errorMessage}`);
+          }
           
           processedCount++;
           setCorrectionProgress(Math.round((processedCount / totalImages) * 100));
@@ -488,6 +548,98 @@ const AnalysisCreatePage = () => {
     } catch (error) {
       message.error('图像矫正失败：' + (error.message || '未知错误'));
       setIsCorrecting(false);
+    }
+  };
+
+  // 重试单张图片矫正
+  const retryCorrection = async (img) => {
+    setCorrectedImages(prev => prev.map(item => 
+      item.id === img.id
+        ? { ...item, status: 'pending', error: null }
+        : item
+    ));
+
+    try {
+      const formData = new FormData();
+      
+      // 从后端获取模板图片
+      if (!selectedTemplateImage.imageAvailable) {
+        throw new Error('该模板照片不存在，请重新上传模板照片后再使用');
+      }
+      const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
+      formData.append('model', templateBlob, 'template.png');
+      
+      // 将目标图片URL转换为文件
+      const imageBlob = await datasetApi.getDatasetImageFile(img.datasetId, img.id);
+      formData.append('image', imageBlob, img.fileName || img.name || 'image.png');
+      
+      // 调用对齐API
+      const result = await toolApi.alignImage(formData);
+      const correctedBlob = result instanceof Blob ? result : new Blob([result]);
+      
+      // 上传矫正后的图片到后端数据集
+      const correctedFileName = `corrected_${img.fileName || img.name || img.id}.png`;
+      const uploadResponse = await datasetApi.uploadDatasetImage(
+        img.datasetId,
+        correctedBlob,
+        { subjectCode: 'corrected', fileName: correctedFileName }
+      );
+      
+      const correctedUrl = datasetApi.imageFileUrl(img.datasetId, uploadResponse.data.id);
+      
+      // 更新矫正后的图片
+      setCorrectedImages(prev => prev.map(item => 
+        item.id === img.id
+          ? { ...item, corrected: correctedUrl, correctedImageId: uploadResponse.data.id, status: 'completed' }
+          : item
+      ));
+      
+      message.success(`${img.name} 矫正成功`);
+    } catch (error) {
+      const errorMessage = error.response?.status === 422 
+        ? '没有检测到角点，矫正失败' 
+        : (error.message || '矫正失败');
+      
+      setCorrectedImages(prev => prev.map(item => 
+        item.id === img.id
+          ? { ...item, status: 'failed', error: errorMessage }
+          : item
+      ));
+      message.error(`${img.name} 重试失败: ${errorMessage}`);
+    }
+  };
+
+  // 删除失败的图片
+  const deleteFailedImage = (imageId) => {
+    setCorrectedImages(prev => prev.filter(item => item.id !== imageId));
+    message.success('已删除失败的图片');
+  };
+
+  // 保存所有矫正图片到本地
+  const saveAllCorrectedImages = async () => {
+    const completedImages = correctedImages.filter(img => img.status === 'completed' && img.corrected);
+    
+    if (completedImages.length === 0) {
+      message.warning('没有已完成的矫正图片可保存');
+      return;
+    }
+
+    try {
+      for (const img of completedImages) {
+        const response = await fetch(img.corrected);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `corrected_${img.name}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      message.success(`已保存 ${completedImages.length} 张矫正图片到本地`);
+    } catch (error) {
+      message.error('保存图片失败：' + (error.message || '未知错误'));
     }
   };
 
@@ -521,6 +673,18 @@ const AnalysisCreatePage = () => {
       };
     }
   }, [currentStep, selectedTemplateImage]);
+
+  // 自动缩放模板图片以适应容器
+  useEffect(() => {
+    if (!edgeImgSize || !edgeContainerRef.current) return;
+    const container = edgeContainerRef.current;
+    const containerWidth = container.clientWidth - 48; // padding
+    const containerHeight = container.clientHeight - 48;
+    const scaleX = containerWidth / edgeImgSize.w;
+    const scaleY = containerHeight / edgeImgSize.h;
+    const autoScale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小
+    setEdgeScale(autoScale);
+  }, [edgeImgSize]);
 
   // 坐标转换 - 参照 EdgeDetectionPage
   const canvasToNorm = useCallback((canvasX, canvasY) => {
@@ -586,10 +750,13 @@ const AnalysisCreatePage = () => {
     // 绘制区域
     if (showRegions && regions.length > 0) {
       for (const r of regions) {
-        const isSelected = r.regionId === selectedRegion?.regionId;
+        const isSelected = selectedRegionIds.includes(r.regionId);
         const isHover = hover?.hit === r.regionId && !isSelected;
+        const isMultiSelected = isMultiSelectMode && isSelected && selectedRegionIds.length > 1;
 
-        const style = isSelected
+        const style = isMultiSelected
+          ? { stroke: 'rgba(255,0,255,0.95)', fill: 'rgba(255,0,255,0.22)', lw: 3 }
+          : isSelected
           ? { stroke: 'rgba(0,255,255,0.95)', fill: 'rgba(0,255,255,0.22)', lw: 3 }
           : isHover
           ? { stroke: 'rgba(255,120,0,0.95)', fill: 'rgba(255,120,0,0.16)', lw: 2.5 }
@@ -603,7 +770,7 @@ const AnalysisCreatePage = () => {
           const x = center.x * edgeImgSize.w * edgeScale;
           const y = center.y * edgeImgSize.h * edgeScale;
 
-          ctx.fillStyle = isSelected ? 'rgba(0,255,255,0.95)' : 'rgba(255,120,0,0.95)';
+          ctx.fillStyle = isMultiSelected ? 'rgba(255,0,255,0.95)' : (isSelected ? 'rgba(0,255,255,0.95)' : 'rgba(255,120,0,0.95)');
           ctx.font = 'bold 14px system-ui';
           ctx.textAlign = 'center';
           ctx.fillText(r.name, x, y - 10);
@@ -644,7 +811,7 @@ const AnalysisCreatePage = () => {
       drawCrosshair(ctx, hover.canvasX, hover.canvasY, cssSize.w, cssSize.h);
       drawDot(ctx, hover.canvasX, hover.canvasY);
     }
-  }, [cssSize, drawingPoints, hover, edgeImgSize, isDrawing, regions, edgeScale, selectedRegion, showOriginal, showRegions]);
+  }, [cssSize, drawingPoints, hover, edgeImgSize, isDrawing, regions, edgeScale, selectedRegionIds, isMultiSelectMode, showOriginal, showRegions]);
 
   useEffect(() => {
     render();
@@ -663,8 +830,27 @@ const AnalysisCreatePage = () => {
       setDrawingPoints(prev => [...prev, { x: normX, y: normY }]);
     } else {
       const hit = hitTest({ x: normX, y: normY });
-      const hitRegion = hit ? regions.find(r => r.regionId === hit) : null;
-      setSelectedRegion(hitRegion || null);
+      
+      if (isMultiSelectMode) {
+        // 多选模式：切换选中状态
+        if (hit) {
+          setSelectedRegionIds(prev => {
+            if (prev.includes(hit)) {
+              return prev.filter(id => id !== hit);
+            } else {
+              return [...prev, hit];
+            }
+          });
+        } else {
+          // 点击空白处清空选择
+          setSelectedRegionIds([]);
+        }
+      } else {
+        // 单选模式：只选中一个
+        const hitRegion = hit ? regions.find(r => r.regionId === hit) : null;
+        setSelectedRegion(hitRegion || null);
+        setSelectedRegionIds(hit ? [hit] : []);
+      }
     }
   };
 
@@ -680,6 +866,109 @@ const AnalysisCreatePage = () => {
   };
 
   const handleLeave = () => setHover(null);
+
+  // 双击重命名处理
+  const handleEdgeCanvasDoubleClick = (e) => {
+    if (!edgeImgSize || isDrawing) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    const { normX, normY } = canvasToNorm(canvasX, canvasY);
+    const hit = hitTest({ x: normX, y: normY });
+    
+    if (hit) {
+      const region = regions.find(r => r.regionId === hit);
+      if (region) {
+        setRenamingRegionId(hit);
+        setNewRegionName(region.name);
+        setShowRenameModal(true);
+      }
+    }
+  };
+
+  // 确认重命名
+  const confirmRename = () => {
+    if (renamingRegionId && newRegionName.trim()) {
+      setRegions(prev => prev.map(r => 
+        r.regionId === renamingRegionId 
+          ? { ...r, name: newRegionName.trim() }
+          : r
+      ));
+      message.success("区域重命名成功");
+      setShowRenameModal(false);
+      setRenamingRegionId(null);
+      setNewRegionName("");
+    }
+  };
+
+  // 取消重命名
+  const cancelRename = () => {
+    setShowRenameModal(false);
+    setRenamingRegionId(null);
+    setNewRegionName("");
+  };
+
+  // 合并选中的区域
+  const mergeSelectedRegions = () => {
+    if (selectedRegionIds.length < 2) {
+      message.warning("请至少选择2个区域进行合并");
+      return;
+    }
+
+    const selectedRegions = regions.filter(r => selectedRegionIds.includes(r.regionId));
+    const polygons = selectedRegions.map(r => r.polygon);
+
+    try {
+      // 直接使用前端的凸包算法进行合并
+      const mergedPolygon = computeConvexHull(polygons.flat());
+
+      const mergedRegion = {
+        regionId: `region-${Date.now()}`,
+        name: `合并区域 ${regions.length + 1}`,
+        polygon: mergedPolygon,
+        color: '#1890ff'
+      };
+
+      // 删除原区域，添加合并后的区域
+      setRegions(prev => [...prev.filter(r => !selectedRegionIds.includes(r.regionId)), mergedRegion]);
+      setSelectedRegionIds([]);
+      setIsMultiSelectMode(false);
+      message.success("区域合并成功");
+    } catch (error) {
+      message.error("区域合并失败：" + (error.message || "未知错误"));
+    }
+  };
+
+  // 凸包算法（备用）
+  const computeConvexHull = (points) => {
+    if (points.length < 3) return points;
+    
+    // 简单的凸包算法实现
+    const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    
+    const lower = [];
+    for (const p of sorted) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+        lower.pop();
+      }
+      lower.push(p);
+    }
+    
+    const upper = [];
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const p = sorted[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+        upper.pop();
+      }
+      upper.push(p);
+    }
+    
+    upper.pop();
+    lower.pop();
+    return [...lower, ...upper];
+  };
 
   // 自动检测区域 - 使用Canny边缘检测API
   const handleAutoDetectRegions = async () => {
@@ -1015,8 +1304,8 @@ const AnalysisCreatePage = () => {
             </Badge>
           }
           loading={datasetsLoading}
-          styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
-          style={{ ...cardStyle, height: '100%' }}
+          styles={{ body: { padding: '20px', overflow: 'auto' } }}
+          style={{ ...cardStyle, height: '100%', display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
             {backendDatasets.length === 0 ? (
@@ -1166,8 +1455,8 @@ const AnalysisCreatePage = () => {
       <div style={leftPanelStyle(340)}>
         <Card
           title={<SectionTitle icon={<ExperimentOutlined />} title="矫正控制" />}
-          styles={{ body: { padding: '24px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
-          style={cardStyle}
+          styles={{ body: { padding: '24px' } }}
+          style={{ ...cardStyle, height: 'auto' }}
         >
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             {/* 进度圆环 */}
@@ -1232,24 +1521,28 @@ const AnalysisCreatePage = () => {
             )}
 
             {correctionComplete && (
-              <Button 
-                type="primary" 
-                icon={<ReloadOutlined />} 
-                onClick={() => { setCorrectionComplete(false); startBackendCorrection(); }} 
-                block 
-                size="large"
-                style={{ height: 44, borderRadius: 8 }}
-              >
-                重新矫正
-              </Button>
+              <>
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={saveAllCorrectedImages}
+                  block
+                  size="large"
+                  style={{ height: 44, borderRadius: 8 }}
+                >
+                  保存所有矫正图片
+                </Button>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => { setCorrectionComplete(false); startBackendCorrection(); }}
+                  block
+                  size="large"
+                  style={{ height: 44, borderRadius: 8 }}
+                >
+                  重新矫正
+                </Button>
+              </>
             )}
-
-            <div style={{ padding: 12, background: '#fff7e6', borderRadius: 8, border: '1px solid #ffd591' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                <ExperimentOutlined style={{ marginRight: 6 }} />
-                前端将数据集和模板信息发送给后端，后端根据模板对图片进行几何矫正后返回结果。
-              </Text>
-            </div>
           </Space>
         </Card>
       </div>
@@ -1266,8 +1559,8 @@ const AnalysisCreatePage = () => {
               />
             </div>
           }
-          styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 360px)' } }}
-          style={{ ...cardStyle, height: '100%' }}
+          styles={{ body: { padding: '20px', overflow: 'auto' } }}
+          style={{ ...cardStyle, height: '100%', display: 'flex', flexDirection: 'column' }}
         >
           {correctedImages.length === 0 ? (
             <Empty description="正在准备图片..." image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -1287,7 +1580,14 @@ const AnalysisCreatePage = () => {
                       <img
                         src={img.corrected}
                         alt={img.name}
-                        style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0' }}
+                        style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0', cursor: 'pointer' }}
+                        onClick={() => setPreviewCorrectedImage(img)}
+                      />
+                    ) : img.status === 'failed' && img.original ? (
+                      <img
+                        src={img.original}
+                        alt={img.name}
+                        style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0', opacity: 0.6 }}
                       />
                     ) : (
                       <div style={{ width: '100%', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.neutralLight }}>
@@ -1297,6 +1597,8 @@ const AnalysisCreatePage = () => {
                     <div style={imageStatusOverlayStyle(img.status === 'completed')}>
                       {img.status === 'completed' ? (
                         <CheckCircleOutlined style={{ color: '#fff', fontSize: 20 }} />
+                      ) : img.status === 'failed' ? (
+                        <CloseCircleOutlined style={{ color: '#fff', fontSize: 20 }} />
                       ) : (
                         <Spin size="small" />
                       )}
@@ -1306,7 +1608,30 @@ const AnalysisCreatePage = () => {
                     <Text style={{ fontSize: 13, fontWeight: 500 }} ellipsis>{img.name}</Text>
                     <div style={{ marginTop: 4 }}>
                       <Tag size="small" style={{ fontSize: 11 }}>{img.dataset}</Tag>
+                      {img.status === 'failed' && (
+                        <Tag size="small" color="error" style={{ fontSize: 11 }}>{img.error || '矫正失败'}</Tag>
+                      )}
                     </div>
+                    {correctionComplete && img.status === 'failed' && (
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                        <Button 
+                          size="small" 
+                          type="primary" 
+                          onClick={() => retryCorrection(img)}
+                          style={{ flex: 1 }}
+                        >
+                          重试
+                        </Button>
+                        <Button 
+                          size="small" 
+                          danger 
+                          onClick={() => deleteFailedImage(img.id)}
+                          style={{ flex: 1 }}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1314,6 +1639,25 @@ const AnalysisCreatePage = () => {
           )}
         </Card>
       </div>
+
+      {/* 矫正图片预览Modal */}
+      <Modal
+        open={!!previewCorrectedImage}
+        title={previewCorrectedImage?.name}
+        footer={null}
+        width="80%"
+        centered
+        onCancel={() => setPreviewCorrectedImage(null)}
+        destroyOnClose
+      >
+        {previewCorrectedImage?.corrected && (
+          <img
+            src={previewCorrectedImage.corrected}
+            alt={previewCorrectedImage.name}
+            style={{ width: '100%', height: 'auto', maxHeight: '70vh', objectFit: 'contain' }}
+          />
+        )}
+      </Modal>
     </div>
   );
 
@@ -1323,8 +1667,8 @@ const AnalysisCreatePage = () => {
       <div style={leftPanelStyle(280)}>
         <Card
           title={<SectionTitle icon={<SettingOutlined />} title="区域工具" />}
-          styles={{ body: { padding: '20px', overflow: 'auto', maxHeight: 'calc(100vh - 380px)' } }}
-          style={cardStyle}
+          styles={{ body: { padding: '20px', overflow: 'auto' } }}
+          style={{ ...cardStyle, height: '100%', display: 'flex', flexDirection: 'column' }}
         >
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Button 
@@ -1361,8 +1705,17 @@ const AnalysisCreatePage = () => {
             
             <Button 
               icon={<DeleteOutlined />} 
-              onClick={() => selectedRegion && handleDeleteRegion(selectedRegion.regionId)} 
-              disabled={!selectedRegion} 
+              onClick={() => {
+                if (selectedRegionIds.length > 0) {
+                  setRegions(prev => prev.filter(r => !selectedRegionIds.includes(r.regionId)));
+                  setSelectedRegionIds([]);
+                  setSelectedRegion(null);
+                  message.success("区域已删除");
+                } else if (selectedRegion) {
+                  handleDeleteRegion(selectedRegion.regionId);
+                }
+              }} 
+              disabled={!selectedRegion && selectedRegionIds.length === 0} 
               danger 
               block 
               size="large"
@@ -1370,6 +1723,30 @@ const AnalysisCreatePage = () => {
             >
               删除选中
             </Button>
+
+            <Button 
+              icon={<LayoutOutlined />} 
+              onClick={() => setIsMultiSelectMode(!isMultiSelectMode)} 
+              type={isMultiSelectMode ? 'primary' : 'default'} 
+              block 
+              size="large"
+              style={{ height: 44, borderRadius: 8 }}
+            >
+              {isMultiSelectMode ? '退出多选' : '多选模式'}
+            </Button>
+
+            {isMultiSelectMode && selectedRegionIds.length >= 2 && (
+              <Button 
+                icon={<AppstoreOutlined />} 
+                onClick={mergeSelectedRegions} 
+                type="primary" 
+                block 
+                size="large"
+                style={{ height: 44, borderRadius: 8 }}
+              >
+                合并选中区域
+              </Button>
+            )}
 
             <Divider style={{ margin: '16px 0' }} />
 
@@ -1433,10 +1810,11 @@ const AnalysisCreatePage = () => {
               <Spin />
             </Empty>
           ) : (
-            <div style={{ position: 'relative', overflow: 'auto' }}>
+            <div ref={edgeContainerRef} style={{ position: 'relative', overflow: 'auto', width: '100%', height: '100%' }}>
               <canvas
                 ref={edgeCanvasRef}
                 onClick={handleEdgeCanvasClick}
+                onDoubleClick={handleEdgeCanvasDoubleClick}
                 onMouseMove={handleMove}
                 onMouseLeave={handleLeave}
                 style={{
@@ -1464,8 +1842,8 @@ const AnalysisCreatePage = () => {
               <Badge count={regions.length} style={{ backgroundColor: colors.primary }} />
             </div>
           }
-          styles={{ body: { padding: '16px', overflow: 'auto', maxHeight: 'calc(100vh - 360px)' } }}
-          style={{ ...cardStyle, height: '100%' }}
+          styles={{ body: { padding: '16px', overflow: 'auto' } }}
+          style={{ ...cardStyle, height: '100%', display: 'flex', flexDirection: 'column' }}
         >
           {regions.length === 0 ? (
             <Empty description="暂无区域" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -1534,8 +1912,8 @@ const AnalysisCreatePage = () => {
               <Badge count={correctedImages.length} style={{ backgroundColor: colors.primary }} />
             </div>
           }
-          styles={{ body: { padding: '12px', overflow: 'auto', maxHeight: 'calc(100vh - 360px)' } }}
-          style={{ ...cardStyle, height: '100%' }}
+          styles={{ body: { padding: '12px', overflow: 'auto' } }}
+          style={{ ...cardStyle, height: '100%', display: 'flex', flexDirection: 'column' }}
         >
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
             {correctedImages.map(img => {
@@ -1816,19 +2194,17 @@ const AnalysisCreatePage = () => {
     <div style={pageContainerStyle}>
       {/* 页面头部 */}
       <div style={pageHeaderStyle}>
-        <Button 
-          icon={<ArrowLeftOutlined />} 
-          onClick={() => navigate('/analysis')}
-          style={{ marginBottom: 12 }}
-        >
-          返回列表
-        </Button>
-        <Title level={3} style={{ margin: 0, fontWeight: 600, color: colors.textPrimary }}>
-          创建新的分析项目
-        </Title>
-        <Text type="secondary" style={{ fontSize: 14, marginTop: 4, display: 'block' }}>
-          通过向导完成项目配置，系统将自动执行分析任务
-        </Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Button 
+            icon={<ArrowLeftOutlined />} 
+            onClick={() => navigate('/analysis')}
+          >
+            返回列表
+          </Button>
+          <Title level={3} style={{ margin: 0, fontWeight: 600, color: colors.textPrimary }}>
+            创建新的分析项目
+          </Title>
+        </div>
       </div>
 
       {/* 流程步骤 */}
@@ -1846,13 +2222,11 @@ const AnalysisCreatePage = () => {
       </Card>
 
       {/* 步骤内容区 */}
-      <Card style={contentCardStyle}>
-        <div style={{ height: '100%', overflow: 'auto' }}>
-          {currentStep === 0 && renderStep1()}
-          {currentStep === 1 && renderStep2()}
-          {currentStep === 2 && renderStep3()}
-          {currentStep === 3 && renderStep4()}
-        </div>
+      <Card style={contentCardStyle} styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: '24px' } }}>
+        {currentStep === 0 && renderStep1()}
+        {currentStep === 1 && renderStep2()}
+        {currentStep === 2 && renderStep3()}
+        {currentStep === 3 && renderStep4()}
       </Card>
 
       {/* 底部导航 */}
@@ -1878,6 +2252,25 @@ const AnalysisCreatePage = () => {
           {currentStep === totalSteps - 1 ? '提交分析任务' : '下一步'}
         </Button>
       </div>
+
+      {/* 区域重命名Modal */}
+      <Modal
+        open={showRenameModal}
+        title="重命名区域"
+        onOk={confirmRename}
+        onCancel={cancelRename}
+        okText="确认"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Input
+          value={newRegionName}
+          onChange={(e) => setNewRegionName(e.target.value)}
+          placeholder="请输入新的区域名称"
+          onPressEnter={confirmRename}
+          autoFocus
+        />
+      </Modal>
     </div>
   );
 };
@@ -1908,12 +2301,14 @@ const stepsCardStyle = {
 };
 
 const contentCardStyle = {
-  margin: '0 24px',
+  margin: '0 24px 16px 24px',
   flex: 1,
   minHeight: 0,
   borderRadius: 12,
   boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-  overflow: 'hidden',
+  overflow: 'visible',
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const footerStyle = {
@@ -1929,6 +2324,7 @@ const stepContainerStyle = {
   gap: 20,
   height: '100%',
   padding: 4,
+  overflow: 'visible',
 };
 
 const leftPanelStyle = (width) => ({

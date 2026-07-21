@@ -7,14 +7,18 @@ import com.coloranalysisbackend.repository.DatasetRepository;
 import com.coloranalysisbackend.repository.DatasetGroupRepository;
 import com.coloranalysisbackend.repository.ImageRepository;
 import com.coloranalysisbackend.repository.ProjectRepository;
+import com.coloranalysisbackend.repository.RegionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -39,17 +43,20 @@ public class DatasetService {
     private final DatasetGroupRepository datasetGroupRepository;
     private final ImageRepository imageRepository;
     private final ProjectRepository projectRepository;
+    private final RegionRepository regionRepository;
     private final Path baseDir;
 
     public DatasetService(DatasetRepository datasetRepository,
                           DatasetGroupRepository datasetGroupRepository,
                           ImageRepository imageRepository,
                           ProjectRepository projectRepository,
+                          RegionRepository regionRepository,
                           @Value("${storage.base-dir}") String baseDir) throws IOException {
         this.datasetRepository = datasetRepository;
         this.datasetGroupRepository = datasetGroupRepository;
         this.imageRepository = imageRepository;
         this.projectRepository = projectRepository;
+        this.regionRepository = regionRepository;
         this.baseDir = Paths.get(baseDir);
         if (!Files.exists(this.baseDir)) {
             Files.createDirectories(this.baseDir);
@@ -137,21 +144,50 @@ public class DatasetService {
         return datasetGroupRepository.findById(groupId).orElse(null);
     }
 
-    public Image storeImage(String datasetId, MultipartFile file, String subjectCode, String label) throws IOException {
+    public Image storeImage(String datasetId, MultipartFile file, String subjectCode, String label, boolean overwrite) throws IOException {
         Dataset ds = getDataset(datasetId);
         if (ds == null) {
             throw new IllegalArgumentException("dataset not found");
         }
-        String filename = file.getOriginalFilename();
-        if (filename == null) {
-            filename = UUID.randomUUID().toString();
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("file is required");
+        }
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.toLowerCase().startsWith("image/")) {
+            throw new IllegalArgumentException("only image files are supported");
+        }
+        String filename = sanitizeFileName(file.getOriginalFilename());
+        if (filename.isBlank()) {
+            filename = UUID.randomUUID() + ".jpg";
         }
         Path dir = baseDir.resolve(ds.getStoragePrefix());
         if (!Files.exists(dir)) {
             Files.createDirectories(dir);
         }
+        if (!Files.isDirectory(dir) || !Files.isWritable(dir)) {
+            throw new IOException("storage directory is not writable: " + dir);
+        }
         Path target = dir.resolve(filename);
-        Files.copy(file.getInputStream(), target);
+        if (!target.normalize().startsWith(dir.normalize())) {
+            throw new IllegalArgumentException("invalid file name");
+        }
+        
+        // 如果不覆盖且文件已存在，抛出异常
+        if (!overwrite && Files.exists(target)) {
+            throw new IllegalStateException("File already exists: " + filename);
+        }
+        
+        // 覆盖模式：先删除旧文件（如果存在）
+        if (overwrite && Files.exists(target)) {
+            Files.delete(target);
+            // 同时删除数据库中的旧记录
+            List<Image> existingImages = imageRepository.findByDatasetIdAndFileName(datasetId, filename);
+            for (Image existingImg : existingImages) {
+                imageRepository.delete(existingImg);
+            }
+        }
+        
+        Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
         Image img = new Image();
         img.setId(UUID.randomUUID().toString());
         img.setDatasetId(datasetId);
@@ -254,6 +290,7 @@ public class DatasetService {
     }
 
     /** 删除数据集（若有项目引用则拒绝） */
+    @Transactional
     public void deleteDataset(String id) {
         Dataset d = datasetRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + id));
@@ -268,6 +305,33 @@ public class DatasetService {
             } catch (IOException ignored) {
             }
         }
+        deleteImageRecordsAndRegions(id);
+        datasetRepository.deleteById(id);
+    }
+
+    /** 强制删除数据集（同时删除引用的项目） */
+    @Transactional
+    public void forceDeleteDataset(String id) {
+        Dataset d = datasetRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + id));
+        
+        // 删除所有引用该数据集的项目
+        List<com.coloranalysisbackend.model.Project> projects = projectRepository.findAll().stream()
+                .filter(p -> id.equals(p.getDatasetId()))
+                .toList();
+        for (com.coloranalysisbackend.model.Project project : projects) {
+            projectRepository.deleteById(project.getId());
+        }
+        
+        // 删除本地文件目录
+        Path dir = baseDir.resolve(d.getStoragePrefix() != null ? d.getStoragePrefix() : id);
+        if (Files.exists(dir)) {
+            try {
+                deleteDirectoryRecursively(dir);
+            } catch (IOException ignored) {
+            }
+        }
+        deleteImageRecordsAndRegions(id);
         datasetRepository.deleteById(id);
     }
 
@@ -298,6 +362,7 @@ public class DatasetService {
     }
 
     /** 删除数据集内单张图片 */
+    @Transactional
     public void deleteImage(String datasetId, String imageId) throws IOException {
         Dataset ds = datasetRepository.findById(datasetId)
                 .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + datasetId));
@@ -309,6 +374,7 @@ public class DatasetService {
         if (img.getStorageKey() != null) {
             Files.deleteIfExists(Paths.get(img.getStorageKey()));
         }
+        regionRepository.deleteByImageId(imageId);
         imageRepository.deleteById(imageId);
 
         // 使用数据库查询来获取准确的图片数量，避免并发问题
@@ -351,5 +417,29 @@ public class DatasetService {
             }
         }
         Files.deleteIfExists(dir);
+    }
+
+    private void deleteImageRecordsAndRegions(String datasetId) {
+        List<Image> images = imageRepository.findByDatasetId(datasetId);
+        for (Image image : images) {
+            regionRepository.deleteByImageId(image.getId());
+        }
+        imageRepository.deleteAll(images);
+    }
+
+    private String sanitizeFileName(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return "";
+        }
+        try {
+            Path fileName = Paths.get(originalFilename).getFileName();
+            if (fileName == null) {
+                return "";
+            }
+            String clean = fileName.toString().replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+            return clean.isBlank() ? "" : clean;
+        } catch (InvalidPathException ex) {
+            return "";
+        }
     }
 }

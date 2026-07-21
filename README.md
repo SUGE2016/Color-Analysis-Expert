@@ -69,7 +69,7 @@ src/
 | `backend/` | Spring Boot API（Java） |
 | `algorithm-service/` | Python 图像算法服务（Flask :5000） |
 
-本地后端需 **MySQL 8**、**Java 17**、**Python 3.8+**；Spring Boot 默认 `8080`，Python 算法服务 `5000`。详见 `backend/README.md`。
+本地后端需 **MySQL 8**、**Java 17**、**Python 3.11**；Spring Boot 默认 `8080`，Python 算法服务 `5000`。详见 `backend/README.md`。
 
 ## Docker Compose 启动（推荐）
 
@@ -452,18 +452,29 @@ uploadClient.post('/upload', formData);
 
 ## 部署
 
-项目配置为部署到 GitHub Pages：
+### 本地构建
 
 ```bash
 npm run build
 ```
 
-配置在 `package.json` 中的 `homepage` 字段：
-```json
-{
-  "homepage": "https://Yuxin0629.github.io/Coloring_Analysis_Tool"
-}
+构建产物将输出到 `build/` 目录。
+
+### Docker 部署
+
+**开发模式（热更新前端）**：
+```bash
+cp .env.docker.example .env
+docker compose up --build
 ```
+
+**生产模式（静态前端 + nginx 反代）**：
+```bash
+docker compose --profile prod up --build
+# 访问 http://localhost:8088
+```
+
+配置在 `package.json` 中的 `homepage` 字段为 `"."`，支持相对路径部署。
 
 ---
 
