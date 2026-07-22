@@ -9,115 +9,82 @@ import lombok.Data;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/projects")
-@Tag(name = "项目分析", description = "分析项目创建、执行与任务查询")
+@Tag(name = "项目分析", description = "项目草稿、异步分析与任务查询")
 public class ProjectController {
-    private final ProjectAnalysisService projectAnalysisService;
+    private final ProjectAnalysisService service;
 
-    public ProjectController(ProjectAnalysisService projectAnalysisService) {
-        this.projectAnalysisService = projectAnalysisService;
+    public ProjectController(ProjectAnalysisService service) {
+        this.service = service;
     }
 
     @PostMapping
-    @Operation(summary = "创建分析项目")
-    public ResponseEntity<?> create(@RequestBody CreateProjectRequest req) {
-        try {
-            Project p = projectAnalysisService.createProject(
-                    req.getName(),
-                    req.getOwnerId(),
-                    req.getDatasetId(),
-                    req.getTemplateId(),
-                    req.getConfig()
-            );
-            return ResponseEntity.ok(p);
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-        }
+    @Operation(summary = "创建项目草稿")
+    public ResponseEntity<Project> create(@RequestBody CreateProjectRequest req) {
+        Project project = service.createProject(req.getName(), req.getDatasetIds(), req.getDatasetId(),
+                req.getTemplateId(), req.getConfig());
+        return ResponseEntity.ok(project);
     }
 
     @GetMapping
-    @Operation(summary = "查询项目列表")
-    public ResponseEntity<List<Project>> list() {
-        return ResponseEntity.ok(projectAnalysisService.listProjects());
+    @Operation(summary = "查询当前用户项目")
+    public List<Project> list() {
+        return service.listProjects();
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "查询项目详情")
-    public ResponseEntity<Project> get(@PathVariable("id") String id) {
-        Project p = projectAnalysisService.getProject(id);
-        if (p == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(p);
+    public Project get(@PathVariable String id) {
+        return service.getProject(id);
     }
 
     @PostMapping("/{id}/run")
-    @Operation(summary = "执行项目分析")
-    public ResponseEntity<?> run(@PathVariable("id") String id, @RequestBody RunProjectRequest req) {
-        try {
-            Task task = projectAnalysisService.runProject(
-                    id,
-                    req.getSteps(),
-                    req.getModelImagePath(),
-                    req.getButterflyJsonPath(),
-                    req.getEdgeJsonPath(),
-                    req.getNotes()
-            );
-            return ResponseEntity.ok(task);
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-        }
+    @Operation(summary = "异步执行项目分析")
+    public ResponseEntity<Task> run(@PathVariable String id, @RequestBody(required = false) RunProjectRequest req) {
+        rejectClientPaths(req);
+        Task task = service.runProject(id, req == null ? null : req.getSteps());
+        return ResponseEntity.accepted().location(URI.create("/api/tasks/" + task.getId())).body(task);
     }
 
-    @PostMapping("/{id}/stop")
-    @Operation(summary = "停止项目分析")
-    public ResponseEntity<?> stop(@PathVariable("id") String id) {
-        try {
-            projectAnalysisService.stopProject(id);
-            return ResponseEntity.ok().build();
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-        }
+    @PostMapping({"/{id}/stop", "/{id}/cancel"})
+    public ResponseEntity<Task> stop(@PathVariable String id) {
+        return ResponseEntity.accepted().body(service.stopProject(id));
     }
 
     @GetMapping("/{id}/tasks")
-    @Operation(summary = "查询项目任务列表")
-    public ResponseEntity<List<Task>> listTasks(@PathVariable("id") String id) {
-        return ResponseEntity.ok(projectAnalysisService.listProjectTasks(id));
+    public List<Task> listTasks(@PathVariable String id) {
+        return service.listProjectTasks(id);
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "更新项目（name/config 均可选）")
-    public ResponseEntity<?> update(@PathVariable("id") String id,
-                                    @RequestBody UpdateProjectRequest req) {
-        try {
-            Project p = projectAnalysisService.updateProject(id, req.getName(), req.getConfig());
-            return ResponseEntity.ok(p);
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-        }
+    @Operation(summary = "持续保存项目草稿")
+    public Project update(@PathVariable String id, @RequestBody UpdateProjectRequest req) {
+        return service.updateProject(id, req.getName(), req.getDatasetIds(), req.getTemplateId(), req.getConfig());
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除项目及其所有任务")
-    public ResponseEntity<?> delete(@PathVariable("id") String id) {
-        try {
-            projectAnalysisService.deleteProject(id);
-            return ResponseEntity.noContent().build();
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
+    public ResponseEntity<Void> delete(@PathVariable String id) {
+        service.deleteProject(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    private void rejectClientPaths(RunProjectRequest req) {
+        if (req != null && (req.getModelImagePath() != null || req.getButterflyJsonPath() != null || req.getEdgeJsonPath() != null)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "client supplied server paths are forbidden");
         }
     }
 
     @Data
     public static class CreateProjectRequest {
         private String name;
-        private String ownerId;
-        private String datasetId;
+        private String ownerId; // ignored: owner always comes from JWT
+        private String datasetId; // compatibility only
+        private List<String> datasetIds;
         private String templateId;
         private Map<String, Object> config;
     }
@@ -128,12 +95,13 @@ public class ProjectController {
         private String modelImagePath;
         private String butterflyJsonPath;
         private String edgeJsonPath;
-        private String notes;
     }
 
     @Data
     public static class UpdateProjectRequest {
         private String name;
+        private List<String> datasetIds;
+        private String templateId;
         private Map<String, Object> config;
     }
 }

@@ -41,15 +41,14 @@ public class TemplateService {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("template name is required");
         }
+        validateTemplateImage(imageFile);
         Template t = new Template();
         t.setId(UUID.randomUUID().toString());
         t.setName(name);
         t.setRegionsJson((regionsJson == null || regionsJson.isBlank()) ? null : regionsJson);
 
-        if (imageFile != null && !imageFile.isEmpty()) {
-            String imageKey = saveTemplateImage(t.getId(), imageFile);
-            t.setTemplateImageKey(imageKey);
-        }
+        String imageKey = saveTemplateImage(t.getId(), imageFile);
+        t.setTemplateImageKey(imageKey);
 
         return markImageAvailability(templateRepository.save(t));
     }
@@ -58,6 +57,7 @@ public class TemplateService {
     public List<Template> listTemplates() {
         return templateRepository.findAll().stream()
                 .map(this::markImageAvailability)
+                .filter(Template::isImageAvailable)
                 .collect(Collectors.toList());
     }
 
@@ -116,8 +116,8 @@ public class TemplateService {
         if (t == null || t.getTemplateImageKey() == null) {
             return null;
         }
-        Path path = Paths.get(t.getTemplateImageKey());
-        if (!Files.exists(path)) {
+        Path path = resolveTemplateImagePath(t.getTemplateImageKey());
+        if (!Files.exists(path) || !Files.isRegularFile(path)) {
             return null;
         }
         return new FileSystemResource(path);
@@ -151,6 +151,22 @@ public class TemplateService {
         Path target = dir.resolve(filename);
         Files.copy(file.getInputStream(), target);
         return baseDir.relativize(target).toString();
+    }
+
+    private void validateTemplateImage(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("template imageFile is required");
+        }
+        String fileName = file.getOriginalFilename();
+        String lowerName = fileName == null ? "" : fileName.toLowerCase();
+        boolean supportedExtension = lowerName.endsWith(".jpg")
+                || lowerName.endsWith(".jpeg")
+                || lowerName.endsWith(".png")
+                || lowerName.endsWith(".webp");
+        String contentType = file.getContentType();
+        if (!supportedExtension || contentType == null || !contentType.toLowerCase().startsWith("image/")) {
+            throw new IllegalArgumentException("template imageFile must be a jpg, jpeg, png, or webp image");
+        }
     }
 
     public Path getTemplateImagePath(Template template) {

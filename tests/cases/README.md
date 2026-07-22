@@ -7,14 +7,14 @@
 | 文件 | 级别 | 用例数 | 说明 |
 |------|------|--------|------|
 | [P0-smoke.md](./P0-smoke.md) | P0 | 8 | 环境与存活 |
-| [P1-api-auth.md](./P1-api-auth.md) | P1 | 5 | 认证 |
+| [P1-api-auth.md](./P1-api-auth.md) | P1 | 10 | 认证与权限 |
 | [P1-api-dataset.md](./P1-api-dataset.md) | P1 | 10 | 数据集与分组 |
-| [P1-api-template.md](./P1-api-template.md) | P1 | 4 | 模板 |
-| [P1-api-project.md](./P1-api-project.md) | P1 | 7 | 分析项目 |
-| [P1-api-algorithm.md](./P1-api-algorithm.md) | P1 | 5 | 图像算法（经 API 转发） |
+| [P1-api-template.md](./P1-api-template.md) | P1 | 5 | 模板、图片必填与可用性 |
+| [P1-api-project.md](./P1-api-project.md) | P1 | 22 | 异步项目、配置持久化、项目区域、多数据集、任务状态、重启恢复与权限 |
+| [P1-api-algorithm.md](./P1-api-algorithm.md) | P1 | 6 | 图像算法（经 API 转发） |
 | [P1-api-report.md](./P1-api-report.md) | P1 | 4 | 报告 |
-| [P2-frontend-manual.md](./P2-frontend-manual.md) | P2 | 8 | 前端页面手工 |
-| **合计** | | **51** | |
+| [P2-frontend-manual.md](./P2-frontend-manual.md) | P2 | 14 | 前端页面与交互 |
+| **合计** | | **79** | |
 
 ## ID 编码规则
 

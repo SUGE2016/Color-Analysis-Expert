@@ -16,17 +16,17 @@ export const reportApi = {
   /**
    * 查询单图报告
    * @param {number|string} projectId - 项目ID
-   * @param {number|string} imageId - 图片ID
+   * @param {string} imageName - 图片名称
    * @returns {Promise} 单图报告数据
    */
   getImageReport: (projectId, imageName) => {
-    return apiClient.get(`/reports/projects/${projectId}/images/${imageName}`);
+    return apiClient.get(`/reports/projects/${projectId}/images/${encodeURIComponent(imageName)}`);
   },
 
   /**
    * 导出项目报告
    * @param {number|string} projectId - 项目ID
-   * @param {string} format - 导出格式 (pdf, excel, csv)
+   * @param {string} format - 导出格式 (pdf, xlsx, csv)
    * @returns {Promise} 导出的报告文件
    */
   exportProjectReport: (projectId, format = 'pdf') => {

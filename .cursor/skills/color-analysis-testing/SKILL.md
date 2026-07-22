@@ -33,7 +33,7 @@ description: >-
 
 - 用例状态仅允许：`PASS` | `FAIL` | `SKIP` | `BLOCK`
 - `CASE_ID` 与 `tests/cases/*.md` 一致
-- **PRJ-04**：HTTP 200 不足，须核对 `task.status=success` 才算 PASS
+- **PRJ-04**：HTTP 202 仅代表已受理；须按返回 taskId 轮询至 `task.status=success`，同时确认项目 `completed` 与必需输出完整才算 PASS
 - **ownerId**：API 请求须用 admin 的 UUID，不能传用户名 `admin`
 - **模板创建**：`POST /api/templates` 为 `multipart/form-data`（`name`、`regionsJson`）
 - **Canny/角点**：multipart 字段名为 `file`，不是 `image`

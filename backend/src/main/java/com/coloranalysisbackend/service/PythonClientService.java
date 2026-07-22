@@ -9,19 +9,24 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.beans.factory.annotation.Value;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Service
 public class PythonClientService {
     private final WebClient webClient;
-        private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
+    private final Duration pipelineTimeout;
 
-        public PythonClientService(WebClient.Builder builder,
-                                                           com.coloranalysisbackend.config.PythonProperties props,
-                                                           ObjectMapper objectMapper) {
+    public PythonClientService(WebClient.Builder builder,
+                               com.coloranalysisbackend.config.PythonProperties props,
+                               ObjectMapper objectMapper,
+                               @Value("${project.pipeline.timeout:PT4H}") Duration pipelineTimeout) {
         this.webClient = builder.baseUrl(props.getUrl()).build();
-                this.objectMapper = objectMapper;
+        this.objectMapper = objectMapper;
+        this.pipelineTimeout = pipelineTimeout;
     }
 
     /**
@@ -100,7 +105,7 @@ public class PythonClientService {
                                 .bodyValue(payload)
                                 .retrieve()
                                 .bodyToMono(Map.class)
-                                .block();
+                                .block(pipelineTimeout);
         }
 
         private ByteArrayResource namedResource(byte[] bytes, String fileName) {

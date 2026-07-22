@@ -11,7 +11,7 @@
 | SMK-05 | 登录 | `POST /api/auth/login` body `{"username":"admin","password":"admin123"}` | `200`，body 含 `token` | 脚本 | PASS |
 | SMK-06 | 受保护接口 | SMK-05 的 token + `GET /api/datasets` | `200`，数组（可为空） | 脚本 | PASS |
 | SMK-07 | 无 token 拒绝 | `GET /api/datasets` 不带 Authorization | `401` 或 `403` | 脚本 | PASS |
-| SMK-08 | 前端页面 | 浏览器打开 `http://localhost:3000`（或 `FRONTEND_PORT`） | 页面加载，无白屏 | 手工 | SKIP |
+| SMK-08 | 前端页面 | 浏览器打开 `http://localhost:3000`（或 `FRONTEND_PORT`） | 页面加载，无白屏 | 手工 | PASS |
 
 ## SMK-05 请求示例
 
@@ -26,3 +26,4 @@ curl -s -X POST http://localhost:8080/api/auth/login \
 | 执行人 | 日期 | 环境 | 通过/总数 | 备注 |
 |--------|------|------|-----------|------|
 | Agent | 2026-06-24 | Docker | 7/8 (1 SKIP) | SMK-08 前端页面手工跳过 |
+| Codex | 2026-07-21 | Docker | 8/8 | 四服务存活，Swagger/OpenAPI/前端均 200 |

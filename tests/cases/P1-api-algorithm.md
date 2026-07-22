@@ -4,11 +4,12 @@
 
 | ID | 场景 | 步骤 | 期望 | 状态 |
 |----|------|------|------|------|
-| ALG-01 | Canny 检测 | `POST /api/images/canny` multipart `image` + 可选 `config` | 200 JSON，含 `regions` | PASS |
+| ALG-01 | Canny 检测 | `POST /api/images/canny` multipart `file` + 可选 `config` | 200 JSON，含 `regions` | PASS |
 | ALG-02 | 校正角点 | `POST /api/images/correction/points` + 小图 | 200，含 `points` 数组 | PASS |
 | ALG-03 | 透视对齐 | `POST /api/images/correction/align` model+image | 200，`Content-Type` 含 image/png | PASS |
 | ALG-04 | HSV 处理 | `POST /api/images/hsv/process` image+mask | 200 图像流 | PASS |
 | ALG-05 | Python 不可用 | 停 `color-python` 后重试 ALG-01 | 5xx 或明确错误信息（记录实际） | SKIP |
+| ALG-06 | Canny 无 Token | 不带 Authorization 上传 multipart `file` | 401 或 403 | PASS |
 
 ## 样例文件
 
@@ -20,3 +21,4 @@
 | 执行人 | 日期 | 通过/总数 | 备注 |
 |--------|------|-----------|------|
 | Agent | 2024-06-24 | 4/5 (1 SKIP) | fixtures 已补充，ALG-05 跳过 |
+| Codex | 2026-07-21 | 5/6 (1 SKIP) | 算法主路径及 Canny 无 Token 拒绝通过 |

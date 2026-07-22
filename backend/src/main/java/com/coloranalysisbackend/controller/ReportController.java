@@ -1,6 +1,7 @@
 package com.coloranalysisbackend.controller;
 
 import com.coloranalysisbackend.service.ReportService;
+import com.coloranalysisbackend.service.ProjectAnalysisService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.core.io.FileSystemResource;
@@ -17,15 +18,18 @@ import java.util.Map;
 @Tag(name = "报告管理", description = "分析结果汇总、单图报告与导出")
 public class ReportController {
     private final ReportService reportService;
+    private final ProjectAnalysisService projectAnalysisService;
 
-    public ReportController(ReportService reportService) {
+    public ReportController(ReportService reportService, ProjectAnalysisService projectAnalysisService) {
         this.reportService = reportService;
+        this.projectAnalysisService = projectAnalysisService;
     }
 
     @GetMapping("/projects/{projectId}/summary")
     @Operation(summary = "查询项目汇总报告")
     public ResponseEntity<?> projectSummary(@PathVariable String projectId) {
         try {
+            projectAnalysisService.getProject(projectId);
             Map<String, Object> summary = reportService.getProjectSummary(projectId);
             return ResponseEntity.ok(summary);
         } catch (IllegalArgumentException ex) {
@@ -38,6 +42,7 @@ public class ReportController {
     public ResponseEntity<?> singleImageReport(@PathVariable String projectId,
                                                @PathVariable String imageName) {
         try {
+            projectAnalysisService.getProject(projectId);
             Map<String, Object> detail = reportService.getSingleImageReport(projectId, imageName);
             return ResponseEntity.ok(detail);
         } catch (IllegalArgumentException ex) {
@@ -49,6 +54,7 @@ public class ReportController {
     @Operation(summary = "导出项目报告", description = "支持csv、xlsx、pdf")
     public ResponseEntity<?> export(@PathVariable String projectId,
                                     @RequestParam(defaultValue = "csv") String format) {
+        projectAnalysisService.getProject(projectId);
         try {
             File file = reportService.exportProjectSummary(projectId, format);
             String lowered = format.toLowerCase();

@@ -89,3 +89,60 @@ CREATE TABLE IF NOT EXISTS regions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (image_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- project analysis v2: multi-dataset drafts and observable asynchronous tasks
+ALTER TABLE projects MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT 'draft';
+ALTER TABLE tasks MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT 'queued';
+
+SET @project_snapshot_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projects' AND COLUMN_NAME = 'template_snapshot'
+);
+SET @sql_stmt := IF(@project_snapshot_exists = 0,
+  'ALTER TABLE projects ADD COLUMN template_snapshot JSON NULL AFTER config',
+  'SELECT "template_snapshot exists"');
+PREPARE stmt FROM @sql_stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @project_id_collation := (
+  SELECT COLLATION_NAME FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'projects' AND COLUMN_NAME = 'id'
+);
+SET @sql_stmt := CONCAT(
+  'CREATE TABLE IF NOT EXISTS project_datasets (',
+  'project_id CHAR(36) NOT NULL, dataset_id CHAR(36) NOT NULL, ',
+  'PRIMARY KEY (project_id, dataset_id), ',
+  'CONSTRAINT fk_project_datasets_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE, ',
+  'CONSTRAINT fk_project_datasets_dataset FOREIGN KEY (dataset_id) REFERENCES datasets(id)) ',
+  'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=', @project_id_collation
+);
+PREPARE stmt FROM @sql_stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+INSERT IGNORE INTO project_datasets(project_id, dataset_id)
+SELECT id, dataset_id FROM projects WHERE dataset_id IS NOT NULL;
+
+SET @task_progress_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'progress'
+);
+SET @sql_stmt := IF(@task_progress_exists = 0,
+  'ALTER TABLE tasks ADD COLUMN progress INT NOT NULL DEFAULT 0 AFTER status',
+  'SELECT "task progress exists"');
+PREPARE stmt FROM @sql_stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @task_step_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'current_step'
+);
+SET @sql_stmt := IF(@task_step_exists = 0,
+  'ALTER TABLE tasks ADD COLUMN current_step VARCHAR(128) NULL AFTER progress',
+  'SELECT "task current_step exists"');
+PREPARE stmt FROM @sql_stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @task_cancel_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'cancel_requested'
+);
+SET @sql_stmt := IF(@task_cancel_exists = 0,
+  'ALTER TABLE tasks ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT FALSE AFTER current_step',
+  'SELECT "task cancel_requested exists"');
+PREPARE stmt FROM @sql_stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;

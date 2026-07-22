@@ -77,6 +77,8 @@ records:
 
 核心链用例 ID：`AUTH-01`、`DS-01`、`DS-05`、`PRJ-04`、`RPT-01`。
 
+`PRJ-04` 采用异步契约：仅收到 HTTP 202 不算通过，必须使用返回的 taskId 轮询至 `task.status=success`，并确认 `project.status=completed` 与必需输出文件完整。
+
 ## 7. Agent 执行约定
 
 执行或汇报测试时：

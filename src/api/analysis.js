@@ -1,12 +1,4 @@
 import apiClient from './index';
-import { getOwnerId } from '../utils/session';
-
-const DEFAULT_RUN_OPTIONS = {
-  steps: ['correction', 'hsv', 'entropy', 'main_color', 'main_color_number'],
-  modelImagePath: '/app/storage/test-assets/model_image.jpg',
-  butterflyJsonPath: '/app/storage/test-assets/butterfly.json',
-  edgeJsonPath: '/app/storage/test-assets/edge.json',
-};
 
 /**
  * 分析项目 API
@@ -15,17 +7,13 @@ export const analysisApi = {
   getProjects: () => apiClient.get('/projects'),
 
   createProject: (data) => {
-    const { name, ownerId, datasetId, datasetIds, templateId, config } = data;
-    const normalizedDatasetId = datasetId || datasetIds?.[0];
+    const { name, datasetId, datasetIds, templateId, config } = data;
+    const normalizedDatasetIds = datasetIds || (datasetId ? [datasetId] : []);
     return apiClient.post('/projects', {
       name,
-      ownerId: ownerId || getOwnerId(),
-      datasetId: normalizedDatasetId,
+      datasetIds: normalizedDatasetIds,
       templateId,
-      config: {
-        ...(config || {}),
-        datasetIds: datasetIds || (normalizedDatasetId ? [normalizedDatasetId] : []),
-      },
+      config: config || {},
     });
   },
 
@@ -34,24 +22,21 @@ export const analysisApi = {
   getProjectTasks: (projectId) => apiClient.get(`/projects/${projectId}/tasks`),
 
   updateProject: (projectId, data) => {
-    const { name, description, config } = data;
-    return apiClient.put(`/projects/${projectId}`, { name, description, config });
+    const { name, datasetIds, templateId, config } = data;
+    return apiClient.put(`/projects/${projectId}`, { name, datasetIds, templateId, config });
   },
 
   deleteProject: (projectId) => apiClient.delete(`/projects/${projectId}`),
 
   startAnalysis: (projectId, options = {}) => {
-    const body = {
-      ...DEFAULT_RUN_OPTIONS,
-      ...options,
-      notes: options.notes || 'started from frontend',
-    };
-    return apiClient.post(`/projects/${projectId}/run`, body, { timeout: 300000 });
+    return apiClient.post(`/projects/${projectId}/run`, { steps: options.steps || [] });
   },
 
   stopAnalysis: (projectId) => apiClient.post(`/projects/${projectId}/stop`),
 
   getAnalysisProgress: (projectId) => apiClient.get(`/projects/${projectId}/tasks`),
+
+  getTask: (taskId) => apiClient.get(`/tasks/${taskId}`),
 };
 
 export default analysisApi;

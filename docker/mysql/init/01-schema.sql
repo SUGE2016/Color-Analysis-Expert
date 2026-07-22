@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS projects (
   dataset_id CHAR(36),
   template_id CHAR(36),
   config JSON,
-  status ENUM('created','queued','running','completed','failed') DEFAULT 'created',
+  template_snapshot JSON,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (owner_id) REFERENCES users(id),
@@ -66,12 +67,23 @@ CREATE TABLE IF NOT EXISTS projects (
   FOREIGN KEY (template_id) REFERENCES templates(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS project_datasets (
+  project_id CHAR(36) NOT NULL,
+  dataset_id CHAR(36) NOT NULL,
+  PRIMARY KEY (project_id, dataset_id),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (dataset_id) REFERENCES datasets(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 6) tasks
 CREATE TABLE IF NOT EXISTS tasks (
   id CHAR(36) PRIMARY KEY,
   project_id CHAR(36),
   task_type VARCHAR(64),
-  status ENUM('pending','running','success','failed') DEFAULT 'pending',
+  status VARCHAR(32) NOT NULL DEFAULT 'queued',
+  progress INT NOT NULL DEFAULT 0,
+  current_step VARCHAR(128),
+  cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
   worker_task_id VARCHAR(128),
   params JSON,
   result JSON,

@@ -98,6 +98,7 @@ def run_pipeline_api():
     model_image_path = payload.get('modelImagePath')
     butterfly_json = payload.get('butterflyJsonPath')
     edge_json = payload.get('edgeJsonPath')
+    cancel_file = payload.get('cancelFile')
 
     if not dataset_dir or not workspace_dir:
         return jsonify({'error': 'datasetDir and workspaceDir are required'}), 400
@@ -111,10 +112,21 @@ def run_pipeline_api():
         'files': {}
     }
 
+    def cancelled():
+        if cancel_file and os.path.exists(cancel_file):
+            output['cancelled'] = True
+            return True
+        return False
+
+    if cancelled():
+        return jsonify(output)
+
     if 'correction' in steps:
         if not model_image_path:
             return jsonify({'error': 'modelImagePath is required for correction'}), 400
         image_correction.process_folder(model_image_path, dataset_dir, corrected_dir)
+        if cancelled():
+            return jsonify(output)
 
     hsv_input_dir = corrected_dir if os.path.exists(corrected_dir) and os.listdir(corrected_dir) else dataset_dir
 
@@ -124,11 +136,15 @@ def run_pipeline_api():
         hsv_csv = os.path.join(workspace_dir, 'all_hsv_results.csv')
         all_hsv.process_images_HSV(butterfly_json, hsv_input_dir, hsv_csv)
         output['files']['hsvCsv'] = hsv_csv
+        if cancelled():
+            return jsonify(output)
 
     if 'edge_hsv' in steps and edge_json:
         edge_hsv_csv = os.path.join(workspace_dir, 'all_edge_hsv_results.csv')
         all_hsv.process_images_HSV(edge_json, hsv_input_dir, edge_hsv_csv)
         output['files']['edgeHsvCsv'] = edge_hsv_csv
+        if cancelled():
+            return jsonify(output)
 
     if 'entropy' in steps:
         input_csv = output['files'].get('hsvCsv')
@@ -137,6 +153,8 @@ def run_pipeline_api():
         entropy_csv = os.path.join(workspace_dir, 'image_entropy_region_results.csv')
         entropy_region.process_entropy_csv(input_csv, entropy_csv)
         output['files']['entropyCsv'] = entropy_csv
+        if cancelled():
+            return jsonify(output)
 
     if 'main_color' in steps:
         input_csv = output['files'].get('hsvCsv')
@@ -145,6 +163,8 @@ def run_pipeline_api():
         main_color_csv = os.path.join(workspace_dir, 'main_color.csv')
         main_color.process_csv(input_csv, main_color_csv)
         output['files']['mainColorCsv'] = main_color_csv
+        if cancelled():
+            return jsonify(output)
 
     if 'main_color_number' in steps:
         input_csv = output['files'].get('hsvCsv')
@@ -153,6 +173,8 @@ def run_pipeline_api():
         main_color_number_csv = os.path.join(workspace_dir, 'main_color_number.csv')
         main_color_number.process_csv(input_csv, main_color_number_csv)
         output['files']['mainColorNumberCsv'] = main_color_number_csv
+        if cancelled():
+            return jsonify(output)
 
     if 'edge_color' in steps:
         input_csv = output['files'].get('edgeHsvCsv')
@@ -161,6 +183,8 @@ def run_pipeline_api():
         edge_color_csv = os.path.join(workspace_dir, 'edge_main_color.csv')
         edge_color.process_csv(input_csv, edge_color_csv)
         output['files']['edgeColorCsv'] = edge_color_csv
+        if cancelled():
+            return jsonify(output)
 
     return jsonify(output)
 

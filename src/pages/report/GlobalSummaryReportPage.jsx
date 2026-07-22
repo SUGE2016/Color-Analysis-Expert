@@ -1,333 +1,179 @@
-import React, { useState } from 'react';
-import { 
-  Card, Typography, Button, Table, Tag, 
-  Row, Col, Statistic, Space, Select,
-  Divider, message
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert, Button, Card, Col, Empty, Row, Select, Space, Spin,
+  Statistic, Table, Typography, message,
 } from 'antd';
-import { 
-  ArrowLeftOutlined, DownloadOutlined, FileExcelOutlined, 
-  FileTextOutlined, EyeOutlined, FilePdfOutlined
+import {
+  ArrowLeftOutlined, DownloadOutlined, EyeOutlined, FileExcelOutlined,
+  FilePdfOutlined, FileTextOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
+import reportApi from '../../api/report';
 import TableWrap from '../../components/table/TableWrap';
+import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
+const SECTION_KEYS = ['mainColor', 'mainColorNumber', 'entropy', 'edgeColor'];
 
-// 模拟全局汇总报告数据
-const globalSummaryData = {
-  projectInfo: {
-    name: '幼儿园涂色分析项目',
-    createTime: '2025-10-12 00:00:00',
-    totalChildren: 25,
-    totalImages: 120,
-    analyzedImages: 118,
-    status: 'completed'
-  },
-  summaryStatistics: {
-    avgCompletionRate: 87.5,
-    avgColorUsage: 78.3,
-    avgCoverage: 65.7
-  },
-  imageResults: [
-    { 
-      id: 1, 
-      name: '涂色作品_001.jpg', 
-      childName: '小朋友1',
-      analysisTime: '2025-10-12 14:30:25',
-      colorCount: 8,
-      colorUsage: 85.2,
-      coverage: 72.1,
-      dominantColor: { name: '红色', hex: '#FF4D4F', percentage: 28.5 },
-      status: 'completed'
-    },
-    { 
-      id: 2, 
-      name: '涂色作品_002.jpg', 
-      childName: '小朋友2',
-      analysisTime: '2025-10-12 14:32:18',
-      colorCount: 6,
-      colorUsage: 76.8,
-      coverage: 68.5,
-      dominantColor: { name: '蓝色', hex: '#1890FF', percentage: 25.3 },
-      status: 'completed'
-    },
-    { 
-      id: 3, 
-      name: '涂色作品_003.jpg', 
-      childName: '小朋友3',
-      analysisTime: '2025-10-12 14:35:42',
-      colorCount: 9,
-      colorUsage: 82.1,
-      coverage: 75.3,
-      dominantColor: { name: '黄色', hex: '#FAAD14', percentage: 22.8 },
-      status: 'completed'
-    },
-    { 
-      id: 4, 
-      name: '涂色作品_004.jpg', 
-      childName: '小朋友4',
-      analysisTime: '2025-10-12 14:38:15',
-      colorCount: 5,
-      colorUsage: 68.4,
-      coverage: 58.2,
-      dominantColor: { name: '绿色', hex: '#52C41A', percentage: 30.2 },
-      status: 'completed'
-    },
-    { 
-      id: 5, 
-      name: '涂色作品_005.jpg', 
-      childName: '小朋友5',
-      analysisTime: '2025-10-12 14:42:33',
-      colorCount: 7,
-      colorUsage: 79.5,
-      coverage: 70.8,
-      dominantColor: { name: '紫色', hex: '#722ED1', percentage: 24.6 },
-      status: 'completed'
-    }
-  ]
-};
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 const GlobalSummaryReportPage = () => {
   const navigate = useNavigate();
   const { projectId } = useParams();
-  const [selectedFormat, setSelectedFormat] = useState('excel');
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedFormat, setSelectedFormat] = useState('csv');
+  const [exporting, setExporting] = useState(false);
 
-  // 导出功能
-  const handleExport = () => {
-    if (selectedFormat === 'csv') {
-      exportToCSV();
-    } else if (selectedFormat === 'excel') {
-      exportToExcel();
-    } else if (selectedFormat === 'pdf') {
-      exportToPDF();
+  const loadReport = async () => {
+    if (!projectId) {
+      setError('缺少项目 ID，无法加载报告。');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      setReport(await reportApi.getProjectSummaryReport(projectId));
+    } catch (requestError) {
+      setReport(null);
+      setError(requestError?.response?.data || '报告加载失败，请确认项目已有成功的分析任务。');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 导出为CSV
-  const exportToCSV = () => {
-    const headers = ['图片ID', '图片名称', '分析对象', '分析时间', '状态'];
-    const rows = globalSummaryData.imageResults.map(item => [
-      item.id,
-      item.name,
-      item.childName,
-      item.analysisTime,
-      item.status
-    ]);
-    
-    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `全局汇总报告_${projectId}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  useEffect(() => {
+    loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  const imageRows = useMemo(() => {
+    const rowsByImage = new Map();
+    const preview = report?.preview || {};
+    SECTION_KEYS.forEach((sectionKey) => {
+      const sectionRows = Array.isArray(preview[sectionKey]) ? preview[sectionKey] : [];
+      sectionRows.forEach((row) => {
+        const imageName = row?.image_name;
+        if (!imageName) return;
+        if (!rowsByImage.has(imageName)) {
+          rowsByImage.set(imageName, {
+            key: imageName, imageName, mainColor: 0,
+            mainColorNumber: 0, entropy: 0, edgeColor: 0,
+          });
+        }
+        rowsByImage.get(imageName)[sectionKey] += 1;
+      });
+    });
+    return Array.from(rowsByImage.values()).sort((a, b) =>
+      a.imageName.localeCompare(b.imageName, 'zh-CN')
+    );
+  }, [report]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const blob = await reportApi.exportProjectReport(projectId, selectedFormat);
+      downloadBlob(blob, `project-report-${projectId}.${selectedFormat}`);
+      message.success(`${selectedFormat.toUpperCase()} 报告导出成功`);
+    } catch (_requestError) {
+      message.error('报告导出失败，请稍后重试。');
+    } finally {
+      setExporting(false);
+    }
   };
 
-  // 导出为Excel（模拟）
-  const exportToExcel = () => {
-    const data = {
-      projectInfo: globalSummaryData.projectInfo,
-      details: globalSummaryData.imageResults.map(item => ({
-        id: item.id,
-        name: item.name,
-        childName: item.childName,
-        analysisTime: item.analysisTime,
-        status: item.status
-      }))
-    };
-    
-    message.success('正在生成Excel文件...');
-    
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `全局汇总报告_${projectId}.xlsx`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // 导出为PDF（模拟）
-  const exportToPDF = () => {
-    message.success('正在生成PDF报告...');
-    // 实际项目中需要使用pdf生成库
-  };
-
-  // 查看单张图片详情
-  const viewImageDetail = (imageId) => {
-    navigate(`/analysis/${projectId}/report/image/${imageId}`);
-  };
-
-  // 返回项目详情
-  const goBackToProject = () => {
-    navigate(`/analysis/`);
-  };
-
-  // 表格列定义 - 只保留基本信息
   const columns = [
-    {
-      title: '图片名称',
-      dataIndex: 'name',
-      key: 'name',
-      ellipsis: true,
-      render: (text) => <Text>{text}</Text>,
-    },
-    {
-      title: '分析对象',
-      dataIndex: 'childName',
-      key: 'childName',
-    },
-    {
-      title: '分析时间',
-      dataIndex: 'analysisTime',
-      key: 'analysisTime',
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => (
-        <Tag color={status === 'completed' ? 'success' : 'processing'}>
-          {status === 'completed' ? '已完成' : '分析中'}
-        </Tag>
-      )
-    },
+    { title: '图片名称', dataIndex: 'imageName', key: 'imageName', ellipsis: true },
+    { title: '主色行数', dataIndex: 'mainColor', key: 'mainColor', width: 110 },
+    { title: '主色数量行数', dataIndex: 'mainColorNumber', key: 'mainColorNumber', width: 130 },
+    { title: '熵值行数', dataIndex: 'entropy', key: 'entropy', width: 110 },
+    { title: '边缘颜色行数', dataIndex: 'edgeColor', key: 'edgeColor', width: 130 },
     buildActionColumn({
       width: 108,
-      actions: [
-        {
-          key: 'view',
-          label: '详情',
-          icon: <EyeOutlined />,
-          onClick: (record) => viewImageDetail(record.id),
-          pinned: true,
-        },
-      ],
+      actions: [{
+        key: 'view', label: '详情', icon: <EyeOutlined />, pinned: true,
+        onClick: (record) => navigate(
+          `/analysis/${projectId}/report/image/${encodeURIComponent(record.imageName)}`
+        ),
+      }],
     }),
   ];
 
+  const stats = report?.stats || {};
+  const availableFiles = report?.availableFiles || {};
+
   return (
-    <div style={{ width: '100%', height: '100%', padding: '0 24px' }}>
-      {/* 顶部标题栏 */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: 24 
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button 
-            icon={<ArrowLeftOutlined />} 
-            onClick={goBackToProject}
-          >
-            返回项目
-          </Button>
-          <Title level={4} style={{ margin: 0 }}>全局汇总报告</Title>
-        </div>
-        
+    <div style={{ width: '100%', minHeight: '100%', padding: '0 24px 24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
         <Space>
-          <Select 
-            value={selectedFormat} 
-            onChange={setSelectedFormat}
-            style={{ width: 130 }}
-          >
-            <Option value="csv">
-              <Space>
-                <FileTextOutlined />
-                CSV格式
-              </Space>
-            </Option>
-            <Option value="excel">
-              <Space>
-                <FileExcelOutlined />
-                Excel格式
-              </Space>
-            </Option>
-            <Option value="pdf">
-              <Space>
-                <FilePdfOutlined />
-                PDF格式
-              </Space>
-            </Option>
-          </Select>
-          <Button 
-            type="primary" 
-            icon={<DownloadOutlined />}
-            onClick={handleExport}
-          >
-            导出报告
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/analysis')}>返回项目</Button>
+          <Title level={4} style={{ margin: 0 }}>项目汇总报告</Title>
+        </Space>
+        <Space wrap>
+          <Select
+            aria-label="导出格式" value={selectedFormat} onChange={setSelectedFormat}
+            style={{ width: 140 }}
+            options={[
+              { value: 'csv', label: <Space><FileTextOutlined />CSV</Space> },
+              { value: 'xlsx', label: <Space><FileExcelOutlined />Excel</Space> },
+              { value: 'pdf', label: <Space><FilePdfOutlined />PDF</Space> },
+            ]}
+          />
+          <Button type="primary" icon={<DownloadOutlined />} loading={exporting} disabled={!report} onClick={handleExport}>
+            导出项目报告
           </Button>
         </Space>
       </div>
 
-      {/* 项目信息 */}
-      <Card style={{ marginBottom: 24 }}>
-        <Row gutter={24}>
-          <Col span={6}>
-            <Statistic 
-              title="项目名称" 
-              value={globalSummaryData.projectInfo.name}
-              valueStyle={{ fontSize: 14 }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic 
-              title="分析对象数" 
-              value={globalSummaryData.projectInfo.totalImages} 
-              suffix="张"
-              valueStyle={{ color: '#1890ff' }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic 
-              title="图片总数" 
-              value={globalSummaryData.projectInfo.totalImages} 
-              suffix="张"
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic 
-              title="已分析" 
-              value={globalSummaryData.projectInfo.analyzedImages} 
-              suffix={`/ ${globalSummaryData.projectInfo.totalImages} 张`}
-              valueStyle={{ color: '#fa8c16' }}
-            />
-          </Col>
-        </Row>
-      </Card>
+      {error && (
+        <Alert type="error" showIcon message="无法加载报告" description={String(error)}
+          action={<Button icon={<ReloadOutlined />} onClick={loadReport}>重试</Button>}
+          style={{ marginBottom: 24 }} />
+      )}
 
-      {/* 数据表格 - 简洁汇总 */}
-      <TableWrap>
-      <Card title="全局汇总列表">
-        <Table
-          dataSource={globalSummaryData.imageResults}
-          columns={columns}
-          rowKey="id"
-          scroll={{ x: TABLE_SCROLL_X }}
-          pagination={{ pageSize: 10 }}
-        />
-      </Card>
-      </TableWrap>
+      <Spin spinning={loading} description="正在加载真实报告数据...">
+        {report ? (
+          <>
+            <Card style={{ marginBottom: 24 }}>
+              <Row gutter={[24, 24]}>
+                <Col xs={24} sm={12} lg={6}><Statistic title="图片总数" value={stats.imageCount || 0} suffix="张" /></Col>
+                <Col xs={24} sm={12} lg={6}><Statistic title="主色数据" value={stats.mainColorRows || 0} suffix="行" /></Col>
+                <Col xs={24} sm={12} lg={6}><Statistic title="熵值数据" value={stats.entropyRows || 0} suffix="行" /></Col>
+                <Col xs={24} sm={12} lg={6}><Statistic title="边缘颜色数据" value={stats.edgeColorRows || 0} suffix="行" /></Col>
+              </Row>
+            </Card>
 
-      <Divider />
+            <Card title="报告信息" style={{ marginBottom: 24 }}>
+              <Row gutter={[24, 16]}>
+                <Col xs={24} lg={8}><Text type="secondary">项目 ID：</Text><Text copyable>{report.projectId}</Text></Col>
+                <Col xs={24} lg={8}><Text type="secondary">任务 ID：</Text><Text copyable>{report.taskId}</Text></Col>
+                <Col xs={24} lg={8}><Text type="secondary">任务时间：</Text><Text>{report.taskCreatedAt || '-'}</Text></Col>
+                <Col span={24}><Text type="secondary">可用结果文件：</Text><Text>{Object.keys(availableFiles).length ? Object.keys(availableFiles).join('、') : '无'}</Text></Col>
+              </Row>
+            </Card>
 
-      {/* 操作说明 */}
-      <Card size="small" type="inner" title="导出功能说明">
-        <Row gutter={24}>
-          <Col span={12}>
-            <Text strong>CSV格式：</Text>
-            <Text>纯文本逗号分隔值文件，便于导入其他统计工具</Text>
-          </Col>
-          <Col span={12}>
-            <Text strong>Excel格式：</Text>
-            <Text>Microsoft Excel文件，保留表格格式和数据类型</Text>
-          </Col>
-        </Row>
-      </Card>
+            <TableWrap>
+              <Card title="图片结果预览">
+                <Table dataSource={imageRows} columns={columns} rowKey="imageName"
+                  scroll={{ x: TABLE_SCROLL_X }} pagination={{ pageSize: 10, showSizeChanger: false }}
+                  locale={{ emptyText: <Empty description="报告预览中暂无图片数据" /> }} />
+                <Text type="secondary">此处展示接口返回的预览数据（每类最多 20 行）；完整数据请使用上方导出功能。</Text>
+              </Card>
+            </TableWrap>
+          </>
+        ) : !loading && !error ? <Empty description="暂无报告数据" /> : null}
+      </Spin>
     </div>
   );
 };

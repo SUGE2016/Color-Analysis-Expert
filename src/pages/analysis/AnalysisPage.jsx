@@ -26,6 +26,7 @@ import {
   mapBackendProject,
   mapBackendTemplate,
 } from '../../utils/projectMapper';
+import { reconcileIncompleteProjects } from '../../utils/incompleteProjects';
 
 const { Title, Text } = Typography;
 
@@ -60,10 +61,14 @@ const STATUS_CONFIG = {
 const AnalysisPage = () => {
   const navigate = useNavigate();
   // 从 localStorage 加载未完成的创建项目并合并到 API 数据
-  const loadIncompleteProjects = () => {
+  const loadIncompleteProjects = (apiProjects = []) => {
     try {
       const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
-      const incompleteProjects = savedProjects.map(p => ({
+      const reconciledProjects = reconcileIncompleteProjects(savedProjects, apiProjects);
+      if (JSON.stringify(reconciledProjects) !== JSON.stringify(savedProjects)) {
+        localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(reconciledProjects));
+      }
+      const incompleteProjects = reconciledProjects.map(p => ({
         id: p.id,
         name: p.name || '未命名项目',
         targetCount: p.selectedDatasets?.reduce((sum, ds) => sum + (ds.imageCount || 0), 0) || 0,
@@ -86,7 +91,7 @@ const AnalysisPage = () => {
   };
   
   const mergeWithIncomplete = (apiProjects) => {
-    const incompleteProjects = loadIncompleteProjects();
+    const incompleteProjects = loadIncompleteProjects(apiProjects);
     const merged = [...apiProjects];
     incompleteProjects.forEach((ip) => {
       if (!merged.find((p) => String(p.id) === String(ip.id))) {
@@ -99,8 +104,8 @@ const AnalysisPage = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const loadProjects = async () => {
-    setLoading(true);
+  const loadProjects = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [projectList, datasets] = await Promise.all([
         analysisApi.getProjects(),
@@ -110,14 +115,18 @@ const AnalysisPage = () => {
       (Array.isArray(datasets) ? datasets : []).forEach((ds) => {
         datasetNameMap[ds.id] = ds.name;
       });
-      const mapped = (Array.isArray(projectList) ? projectList : []).map((p) =>
-        mapBackendProject(p, datasetNameMap)
+      const rawProjects = Array.isArray(projectList) ? projectList : [];
+      const taskLists = await Promise.all(rawProjects.map((project) =>
+        analysisApi.getProjectTasks(project.id).catch(() => [])
+      ));
+      const mapped = rawProjects.map((project, index) =>
+        mapBackendProject(project, datasetNameMap, taskLists[index]?.[0] || null)
       );
       setProjects(mergeWithIncomplete(mapped));
     } catch {
       setProjects(mergeWithIncomplete([]));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -136,6 +145,8 @@ const AnalysisPage = () => {
   useEffect(() => {
     loadProjects();
     loadTemplates();
+    const timer = setInterval(() => loadProjects(true), 3000);
+    return () => clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -160,6 +171,7 @@ const AnalysisPage = () => {
   // 项目详情弹窗
   const [projectDetailModalVisible, setProjectDetailModalVisible] = useState(false);
   const [currentDetailProject, setCurrentDetailProject] = useState(null);
+  const [detailImages, setDetailImages] = useState([]);
   
   // 模板管理状态
   const [templates, setTemplates] = useState([]);
@@ -291,8 +303,30 @@ const AnalysisPage = () => {
   };
 
   // 查看详情 - 弹窗展示项目图片分析进度
-  const handleViewDetail = (project) => {
-    setCurrentDetailProject(project);
+  const handleViewDetail = async (project) => {
+    try {
+      const [detail, tasks] = await Promise.all([
+        analysisApi.getProjectDetail(project.id),
+        analysisApi.getProjectTasks(project.id),
+      ]);
+      const datasetIds = (detail.datasetIds || [detail.datasetId]).filter(Boolean);
+      const imageGroups = await Promise.all(datasetIds.map(async (datasetId) => {
+        const images = await datasetApi.getDatasetImages(datasetId);
+        return (images || []).map((image) => ({ ...image, datasetId }));
+      }));
+      const images = imageGroups.flat();
+      setDetailImages(images);
+      setCurrentDetailProject({
+        ...project,
+        raw: detail,
+        latestTask: tasks?.[0] || null,
+        progress: tasks?.[0]?.progress ?? project.progress,
+        targetCount: images.length,
+      });
+    } catch {
+      setDetailImages([]);
+      setCurrentDetailProject(project);
+    }
     setProjectDetailModalVisible(true);
   };
 
@@ -325,12 +359,20 @@ const AnalysisPage = () => {
 
   // 继续编辑 - 对于未开始的项目，跳转到创建页面继续编辑
   const handleEdit = (project) => {
-    if (project.status === ANALYSIS_STATUS.NOT_STARTED && project.isIncomplete) {
-      // 跳转到创建页面，通过state传递项目ID以恢复进度
+    if (project.status === ANALYSIS_STATUS.NOT_STARTED) {
       navigate('/analysis/create', { state: { projectId: project.id } });
     } else {
-      // 对于已有项目，跳转到详情页
-      navigate(`/analysis/${project.id}`);
+      handleRestartAnalysis(project);
+    }
+  };
+
+  const handleStop = async (project) => {
+    try {
+      await analysisApi.stopAnalysis(project.id);
+      message.success(`项目 "${project.name}" 已请求取消`);
+      await loadProjects(true);
+    } catch {
+      // API 拦截器已提示
     }
   };
 
@@ -417,8 +459,29 @@ const AnalysisPage = () => {
       await templateApi.deleteTemplate(currentTemplate.id);
       await loadTemplates();
       message.success(`模板 "${currentTemplate.name}" 已删除`);
-    } catch {
-      /* 拦截器已提示 */
+    } catch (error) {
+      if (error.response?.status === 409) {
+        const responseMessage = typeof error.response.data === 'string'
+          ? error.response.data
+          : error.response.data?.message;
+        const referenceCount = responseMessage?.match(/(\d+)\s+project\(s\)/i)?.[1];
+        Modal.warning({
+          title: '模板正在被引用，无法删除',
+          content: (
+            <div>
+              <p>
+                模板 <Text strong>{currentTemplate.name}</Text>
+                {referenceCount ? ` 当前被 ${referenceCount} 个项目引用。` : ' 当前仍被项目引用。'}
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                请先删除相关项目，或将相关项目更换为其他模板后再重试。
+              </p>
+            </div>
+          ),
+          okText: '我知道了',
+        });
+      }
+      // 其他错误由 API 全局拦截器提示。
     } finally {
       setDeleteTemplateModalVisible(false);
       setCurrentTemplate(null);
@@ -564,11 +627,14 @@ const AnalysisPage = () => {
         {
           key: 'edit',
           icon: <EditOutlined />,
-          label: (r) =>
-            r.status === ANALYSIS_STATUS.NOT_STARTED && r.isIncomplete ? '编辑' : '分析',
+          label: (r) => r.status === ANALYSIS_STATUS.NOT_STARTED
+            ? '编辑'
+            : r.status === ANALYSIS_STATUS.IN_PROGRESS ? '取消' : '分析',
           onClick: (r) => {
-            if (r.status === ANALYSIS_STATUS.NOT_STARTED && r.isIncomplete) {
+            if (r.status === ANALYSIS_STATUS.NOT_STARTED) {
               handleEdit(r);
+            } else if (r.status === ANALYSIS_STATUS.IN_PROGRESS) {
+              handleStop(r);
             } else {
               handleRestartAnalysis(r);
             }
@@ -613,7 +679,7 @@ const AnalysisPage = () => {
             <AuthenticatedTemplateImage
               templateId={record.id}
               alt="模板"
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           ) : (
             <FileOutlined style={{ fontSize: 24, color: colors.textTertiary }} />
@@ -884,55 +950,27 @@ const AnalysisPage = () => {
             {/* 根据项目状态生成对应的图片进度数据 */}
             {(() => {
               // 根据项目状态确定每张图片的状态
-              const generateImageProgress = () => {
-                const count = currentDetailProject.targetCount;
-                const images = [];
-                
-                for (let i = 0; i < count; i++) {
-                  let status, progress;
-                  
-                  if (currentDetailProject.status === ANALYSIS_STATUS.COMPLETED) {
-                    // 已完成：所有图片都100%完成
-                    status = 'completed';
-                    progress = 100;
-                  } else if (currentDetailProject.status === ANALYSIS_STATUS.NOT_STARTED) {
-                    // 未开始：所有图片都是0%
-                    status = 'not_started';
-                    progress = 0;
-                  } else if (currentDetailProject.status === ANALYSIS_STATUS.FAILED) {
-                    // 失败：部分完成，部分失败
-                    status = i < count * 0.3 ? 'completed' : 'failed';
-                    progress = i < count * 0.3 ? 100 : 30;
-                  } else {
-                    // 进行中：根据总进度分配
-                    const completedCount = Math.floor(count * (currentDetailProject.progress / 100));
-                    if (i < completedCount) {
-                      status = 'completed';
-                      progress = 100;
-                    } else if (i === completedCount && currentDetailProject.progress < 100) {
-                      status = 'processing';
-                      progress = Math.round((currentDetailProject.progress % (100 / count)) * count);
-                    } else {
-                      status = 'pending';
-                      progress = 0;
-                    }
-                  }
-                  
-                  images.push({
-                    id: i + 1,
-                    name: `涂色作品_${String(i + 1).padStart(3, '0')}.jpg`,
-                    status,
-                    progress
-                  });
-                }
-                return images;
-              };
+              const generateImageProgress = () => detailImages.map((image, index) => {
+                const status = currentDetailProject.status === ANALYSIS_STATUS.COMPLETED
+                  ? 'completed'
+                  : currentDetailProject.status === ANALYSIS_STATUS.FAILED
+                    ? 'failed'
+                    : currentDetailProject.status === ANALYSIS_STATUS.IN_PROGRESS
+                      ? 'processing'
+                      : 'not_started';
+                return {
+                  id: image.id || index + 1,
+                  name: image.fileName || image.name || image.id,
+                  status,
+                  progress: currentDetailProject.progress,
+                };
+              });
 
               const imageList = generateImageProgress();
               
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {imageList.slice(0, 10).map((img) => (
+                  {imageList.slice(0, 10).map((img, index) => (
                     <div
                       key={img.id}
                       style={{
@@ -957,7 +995,7 @@ const AnalysisPage = () => {
                         color: colors.textSecondary,
                         fontWeight: 600
                       }}>
-                        {img.id}
+                        {index + 1}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <Text style={{ fontSize: 13 }} ellipsis>{img.name}</Text>
@@ -1202,7 +1240,7 @@ const AnalysisPage = () => {
                 <AuthenticatedTemplateImage
                   templateId={currentTemplate.id}
                   alt="模板照片"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               ) : (
                 <FileOutlined style={{ fontSize: 64, color: colors.textTertiary }} />

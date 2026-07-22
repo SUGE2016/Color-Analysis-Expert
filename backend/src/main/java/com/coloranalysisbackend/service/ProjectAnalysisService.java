@@ -3,155 +3,297 @@ package com.coloranalysisbackend.service;
 import com.coloranalysisbackend.model.Dataset;
 import com.coloranalysisbackend.model.Project;
 import com.coloranalysisbackend.model.Task;
+import com.coloranalysisbackend.model.Template;
 import com.coloranalysisbackend.repository.DatasetRepository;
+import com.coloranalysisbackend.repository.ImageRepository;
 import com.coloranalysisbackend.repository.ProjectRepository;
 import com.coloranalysisbackend.repository.TaskRepository;
+import com.coloranalysisbackend.repository.TemplateRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class ProjectAnalysisService {
     private final ProjectRepository projectRepository;
     private final DatasetRepository datasetRepository;
+    private final ImageRepository imageRepository;
+    private final TemplateRepository templateRepository;
     private final TaskRepository taskRepository;
-    private final PythonClientService pythonClientService;
+    private final ProjectTaskExecutor taskExecutor;
     private final ObjectMapper objectMapper;
-    private final String storageBaseDir;
+    private final CurrentUserService currentUserService;
+    private final Path storageBaseDir;
 
     public ProjectAnalysisService(ProjectRepository projectRepository,
                                   DatasetRepository datasetRepository,
+                                  ImageRepository imageRepository,
+                                  TemplateRepository templateRepository,
                                   TaskRepository taskRepository,
-                                  PythonClientService pythonClientService,
+                                  ProjectTaskExecutor taskExecutor,
                                   ObjectMapper objectMapper,
+                                  CurrentUserService currentUserService,
                                   @Value("${storage.base-dir}") String storageBaseDir) {
         this.projectRepository = projectRepository;
         this.datasetRepository = datasetRepository;
+        this.imageRepository = imageRepository;
+        this.templateRepository = templateRepository;
         this.taskRepository = taskRepository;
-        this.pythonClientService = pythonClientService;
+        this.taskExecutor = taskExecutor;
         this.objectMapper = objectMapper;
-        this.storageBaseDir = storageBaseDir;
+        this.currentUserService = currentUserService;
+        this.storageBaseDir = Paths.get(storageBaseDir).toAbsolutePath().normalize();
     }
 
-    public Project createProject(String name, String ownerId, String datasetId, String templateId, Map<String, Object> config) {
-        if (datasetRepository.findById(datasetId).isEmpty()) {
-            throw new IllegalArgumentException("dataset not found");
+    @Transactional
+    public Project createProject(String name, List<String> datasetIds, String legacyDatasetId,
+                                 String templateId, Map<String, Object> config) {
+        String ownerId = currentUserService.requireCurrentUserId();
+        if (name == null || name.isBlank()) unprocessable("project name is required");
+        if (projectRepository.existsByOwnerIdAndName(ownerId, name.trim())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "project name already exists");
         }
+        Set<String> ids = normalizeDatasetIds(datasetIds, legacyDatasetId);
+        if (ids.isEmpty()) unprocessable("at least one datasetId is required");
+        validateDatasets(ids, ownerId);
+        Template template = requireTemplate(templateId);
+
         Project project = new Project();
         project.setId(UUID.randomUUID().toString());
-        project.setName(name);
+        project.setName(name.trim());
         project.setOwnerId(ownerId);
-        project.setDatasetId(datasetId);
+        project.setDatasetIds(ids);
+        project.setDatasetId(ids.iterator().next());
         project.setTemplateId(templateId);
+        project.setTemplateSnapshot(snapshotTemplate(template));
         project.setConfig(toJson(config == null ? Map.of() : config));
-        project.setStatus("created");
+        project.setStatus("draft");
         return projectRepository.save(project);
     }
 
     public List<Project> listProjects() {
-        return projectRepository.findAll();
+        return projectRepository.findByOwnerId(currentUserService.requireCurrentUserId());
     }
 
     public Project getProject(String projectId) {
-        return projectRepository.findById(projectId).orElse(null);
+        return requireOwnedProject(projectId);
     }
 
     public List<Task> listProjectTasks(String projectId) {
-        return taskRepository.findByProjectId(projectId);
+        requireOwnedProject(projectId);
+        return taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
     }
 
-    public Task runProject(String projectId,
-                           List<String> steps,
-                           String modelImagePath,
-                           String butterflyJsonPath,
-                           String edgeJsonPath,
-                           String notes) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("project not found"));
-        Dataset dataset = datasetRepository.findById(project.getDatasetId())
-                .orElseThrow(() -> new IllegalArgumentException("dataset not found"));
+    @Transactional
+    public Task runProject(String projectId, List<String> steps) {
+        Project project = requireOwnedProject(projectId);
+        if (project.getTemplateId() == null || project.getTemplateId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "template is required before running");
+        }
+        if (project.getDatasetIds() == null || project.getDatasetIds().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "datasets are required before running");
+        }
+        validateProjectRegions(project.getConfig());
+        long imageCount = project.getDatasetIds().stream().mapToLong(imageRepository::countByDatasetId).sum();
+        if (imageCount == 0) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "selected datasets contain no images");
+        }
+        boolean active = taskRepository.findByProjectId(projectId).stream()
+                .anyMatch(t -> "queued".equals(t.getStatus()) || "running".equals(t.getStatus()));
+        if (active) throw new ResponseStatusException(HttpStatus.CONFLICT, "project already has an active task");
 
         Task task = new Task();
         task.setId(UUID.randomUUID().toString());
         task.setProjectId(projectId);
         task.setTaskType("project-analysis");
-        task.setStatus("pending");
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("steps", steps);
-        params.put("modelImagePath", modelImagePath);
-        params.put("butterflyJsonPath", butterflyJsonPath);
-        params.put("edgeJsonPath", edgeJsonPath);
-        params.put("notes", notes);
-        task.setParams(toJson(params));
+        task.setStatus("queued");
+        task.setProgress(0);
+        task.setCurrentStep("queued");
+        task.setCancelRequested(false);
+        task.setParams(toJson(Map.of("steps", steps == null ? List.of() : steps)));
         taskRepository.save(task);
-
-        project.setStatus("running");
+        project.setStatus("queued");
         projectRepository.save(project);
+        String taskId = task.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                taskExecutor.execute(taskId);
+            }
+        });
+        return task;
+    }
 
+    @Transactional
+    public Task stopProject(String projectId) {
+        Project project = requireOwnedProject(projectId);
+        Task task = taskRepository.findTopByProjectIdOrderByCreatedAtDesc(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "project has no task to cancel"));
+        if (!List.of("queued", "running").contains(task.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "task is not cancellable in status " + task.getStatus());
+        }
+        task.setCancelRequested(true);
         try {
-            Path datasetDir = Paths.get(storageBaseDir, dataset.getStoragePrefix()).toAbsolutePath();
-            Path workspaceDir = Paths.get(storageBaseDir, "projects", projectId, task.getId()).toAbsolutePath();
-
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("datasetDir", datasetDir.toString());
-            payload.put("workspaceDir", workspaceDir.toString());
-            payload.put("steps", steps == null || steps.isEmpty()
-                    ? List.of("correction", "hsv", "entropy", "main_color", "main_color_number")
-                    : steps);
-            payload.put("modelImagePath", modelImagePath);
-            payload.put("butterflyJsonPath", butterflyJsonPath);
-            payload.put("edgeJsonPath", edgeJsonPath);
-
-            Map<String, Object> result = pythonClientService.runPipeline(payload);
-            task.setStatus("success");
-            task.setResult(toJson(result));
-            task.setLogs("pipeline finished");
-            taskRepository.save(task);
-
-            project.setStatus("completed");
-            projectRepository.save(project);
-            return task;
+            Path marker = storageBaseDir.resolve("projects").resolve(projectId).resolve(task.getId()).resolve("cancel.requested");
+            Files.createDirectories(marker.getParent());
+            Files.writeString(marker, "cancelled");
         } catch (Exception ex) {
-            task.setStatus("failed");
-            task.setLogs(ex.getMessage());
-            taskRepository.save(task);
-
-            project.setStatus("failed");
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "failed to persist cancellation marker");
+        }
+        boolean orphanedRunningTask = "running".equals(task.getStatus()) && !taskExecutor.isActiveTask(task.getId());
+        if ("queued".equals(task.getStatus()) || orphanedRunningTask) {
+            task.setStatus("cancelled");
+            task.setCurrentStep("cancelled");
+            task.setFinishedAt(LocalDateTime.now());
+            task.setLogs(orphanedRunningTask
+                    ? "cancelled orphaned running task; no executor is active in this API instance"
+                    : "cancelled before execution");
+            project.setStatus("cancelled");
             projectRepository.save(project);
-            return task;
+        }
+        taskRepository.save(task);
+        return task;
+    }
+
+    @Transactional
+    public Project updateProject(String projectId, String name, List<String> datasetIds,
+                                 String templateId, Map<String, Object> config) {
+        Project project = requireOwnedProject(projectId);
+        if (List.of("queued", "running").contains(project.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "running project cannot be edited");
+        }
+        if (name != null && !name.isBlank() && !name.trim().equals(project.getName())) {
+            if (projectRepository.existsByOwnerIdAndName(project.getOwnerId(), name.trim())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "project name already exists");
+            }
+            project.setName(name.trim());
+        }
+        if (datasetIds != null) {
+            Set<String> ids = normalizeDatasetIds(datasetIds, null);
+            if (ids.isEmpty()) unprocessable("at least one datasetId is required");
+            validateDatasets(ids, project.getOwnerId());
+            project.setDatasetIds(ids);
+            project.setDatasetId(ids.iterator().next());
+        }
+        if (templateId != null) {
+            Template template = requireTemplate(templateId);
+            project.setTemplateId(templateId);
+            project.setTemplateSnapshot(snapshotTemplate(template));
+        }
+        if (config != null) project.setConfig(toJson(config));
+        project.setStatus("draft");
+        return projectRepository.save(project);
+    }
+
+    @Transactional
+    public void deleteProject(String projectId) {
+        Project project = requireOwnedProject(projectId);
+        if (List.of("queued", "running").contains(project.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "cancel the active task before deleting project");
+        }
+        taskRepository.deleteAll(taskRepository.findByProjectId(projectId));
+        projectRepository.delete(project);
+    }
+
+    public Task getOwnedTask(String taskId) {
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "task not found"));
+        requireOwnedProject(task.getProjectId());
+        return task;
+    }
+
+    private Project requireOwnedProject(String projectId) {
+        String ownerId = currentUserService.requireCurrentUserId();
+        if (projectRepository.findById(projectId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found");
+        }
+        return projectRepository.findByIdAndOwnerId(projectId, ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "project belongs to another user"));
+    }
+
+    private Set<String> normalizeDatasetIds(List<String> datasetIds, String legacyDatasetId) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (datasetIds != null) datasetIds.stream().filter(id -> id != null && !id.isBlank()).forEach(ids::add);
+        if (ids.isEmpty() && legacyDatasetId != null && !legacyDatasetId.isBlank()) ids.add(legacyDatasetId);
+        return ids;
+    }
+
+    private void validateDatasets(Set<String> ids, String ownerId) {
+        for (String id : ids) {
+            Dataset dataset = datasetRepository.findById(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "dataset not found: " + id));
+            if (dataset.getOwnerId() != null && !dataset.getOwnerId().equals(ownerId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "dataset belongs to another user: " + id);
+            }
         }
     }
 
-    public void stopProject(String projectId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
-        
-        // Only stop if project is currently running
-        if (!"running".equals(project.getStatus())) {
-            throw new IllegalArgumentException("project is not running, current status: " + project.getStatus());
+    private Template requireTemplate(String templateId) {
+        if (templateId == null || templateId.isBlank()) unprocessable("templateId is required");
+        Template template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "template not found"));
+        if (template.getTemplateImageKey() == null || template.getTemplateImageKey().isBlank()) {
+            unprocessable("template image is required");
         }
-        
-        project.setStatus("stopped");
-        projectRepository.save(project);
-        
-        // Mark any pending tasks as cancelled
-        List<Task> pendingTasks = taskRepository.findByProjectId(projectId).stream()
-                .filter(t -> "pending".equals(t.getStatus()))
-                .toList();
-        
-        for (Task task : pendingTasks) {
-            task.setStatus("cancelled");
-            task.setLogs("Task cancelled due to project stop");
-            taskRepository.save(task);
+        Path imagePath = Paths.get(template.getTemplateImageKey());
+        if (!imagePath.isAbsolute()) imagePath = storageBaseDir.resolve(imagePath);
+        if (!Files.isRegularFile(imagePath.normalize())) {
+            unprocessable("template image is unavailable");
+        }
+        return template;
+    }
+
+    private String snapshotTemplate(Template template) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", template.getId());
+        snapshot.put("name", template.getName());
+        snapshot.put("templateImageKey", template.getTemplateImageKey());
+        return toJson(snapshot);
+    }
+
+    private void validateProjectRegions(String configJson) {
+        try {
+            Map<?, ?> config = objectMapper.readValue(configJson == null ? "{}" : configJson, Map.class);
+            Object rawRegions = config.get("regions");
+            if (!(rawRegions instanceof List<?>)) {
+                unprocessable("请先在步骤 3 定义至少一个分析区域");
+            }
+            List<?> regions = (List<?>) rawRegions;
+            if (regions.isEmpty()) {
+                unprocessable("请先在步骤 3 定义至少一个分析区域");
+            }
+            for (Object rawRegion : regions) {
+                if (!(rawRegion instanceof Map<?, ?> region)
+                        || !(region.get("regionId") instanceof String regionId)
+                        || regionId.isBlank()
+                        || !(region.get("polygon") instanceof List<?> polygon)
+                        || polygon.size() < 3
+                        || polygon.stream().anyMatch(point -> !(point instanceof Map<?, ?> coordinates)
+                                || !(coordinates.get("x") instanceof Number)
+                                || !(coordinates.get("y") instanceof Number))) {
+                    unprocessable("步骤 3 的分析区域格式无效");
+                }
+            }
+        } catch (JsonProcessingException ex) {
+            unprocessable("项目配置格式无效");
         }
     }
 
@@ -159,28 +301,15 @@ public class ProjectAnalysisService {
         try {
             return objectMapper.writeValueAsString(object);
         } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("json serialize error: " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "json serialize error");
         }
     }
 
-    /** 更新项目（name/config 均可选） */
-    public Project updateProject(String projectId, String name, Map<String, Object> config) {
-        Project p = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
-        if (name != null && !name.isBlank()) {
-            p.setName(name);
-        }
-        if (config != null) {
-            p.setConfig(toJson(config));
-        }
-        return projectRepository.save(p);
+    private void badRequest(String message) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 
-    /** 删除项目及其所有任务记录 */
-    public void deleteProject(String projectId) {
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
-        taskRepository.deleteAll(taskRepository.findByProjectId(projectId));
-        projectRepository.deleteById(projectId);
+    private void unprocessable(String message) {
+        throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, message);
     }
 }

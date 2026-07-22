@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -32,6 +33,25 @@ public class Task {
 
     private String logs;
 
+    private Integer progress;
+
+    @Column(name = "current_step")
+    private String currentStep;
+
+    @Column(name = "cancel_requested")
+    private Boolean cancelRequested;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    @Column(name = "finished_at")
+    private LocalDateTime finishedAt;
+
+    @Transient
+    public String getTaskId() {
+        return id;
+    }
 }

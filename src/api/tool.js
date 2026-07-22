@@ -8,13 +8,12 @@ export const toolApi = {
     if (Object.keys(config).length > 0 && !formData.has('config')) {
       formData.append('config', JSON.stringify(config));
     }
-    return uploadClient.post('/images/canny', formData, { skipAuth: true });
+    return uploadClient.post('/images/canny', formData);
   },
 
   alignImage: (formData) => {
     return uploadClient.post('/images/correction/align', formData, {
       responseType: 'blob',
-      skipAuth: true,
     });
   },
 
@@ -33,7 +32,7 @@ export const toolApi = {
   },
 
   mergePolygons: (polygons) => {
-    return uploadClient.post('/images/polygon/merge', { polygons }, { skipAuth: true });
+    return uploadClient.post('/images/polygon/merge', { polygons });
   },
 };
 

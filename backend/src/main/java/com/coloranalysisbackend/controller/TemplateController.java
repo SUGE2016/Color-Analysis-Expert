@@ -26,13 +26,13 @@ public class TemplateController {
         this.templateService = templateService;
     }
 
-    /** 创建模板（multipart：name必填，imageFile可选，regionsJson可选） */
+    /** 创建模板（multipart：name和imageFile必填，regionsJson仅为兼容字段） */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "创建模板")
     public ResponseEntity<?> create(
             @RequestParam("name") String name,
             @RequestParam(value = "regionsJson", required = false) String regionsJson,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile) {
+            @RequestParam("imageFile") MultipartFile imageFile) {
         try {
             Template t = templateService.createTemplate(name, regionsJson, imageFile);
             return ResponseEntity.ok(t);

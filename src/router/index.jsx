@@ -54,7 +54,7 @@ const routesConfig = [
       
       // 报告模块路由
       { path: "analysis/:projectId/report", element: <GlobalSummaryReportPage /> },
-      { path: "analysis/:projectId/report/image/:imageId", element: <SingleImageReportPage /> },
+      { path: "analysis/:projectId/report/image/:imageName", element: <SingleImageReportPage /> },
       
       // 工具箱路由
       { path: "toolbox", element: <ToolboxPage /> },

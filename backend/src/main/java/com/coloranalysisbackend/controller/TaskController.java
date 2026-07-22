@@ -3,6 +3,7 @@ package com.coloranalysisbackend.controller;
 import com.coloranalysisbackend.model.Task;
 import com.coloranalysisbackend.repository.TaskRepository;
 import com.coloranalysisbackend.service.RegionService;
+import com.coloranalysisbackend.service.ProjectAnalysisService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -23,6 +25,7 @@ public class TaskController {
     private final TaskRepository taskRepository;
     private final RegionService regionService;
     private final ObjectMapper objectMapper;
+    private final ProjectAnalysisService projectAnalysisService;
 
     /**
      * 提交区域识别任务
@@ -36,7 +39,9 @@ public class TaskController {
         task.setId(taskId);
         task.setProjectId((String) request.get("image_id"));
         task.setTaskType("region-recognition");
-        task.setStatus("PENDING");
+        task.setStatus("pending");
+        task.setProgress(0);
+        task.setCancelRequested(false);
         
         try {
             task.setParams(objectMapper.writeValueAsString(request.get("algorithm_config")));
@@ -51,7 +56,7 @@ public class TaskController {
         
         return ResponseEntity.ok(Map.of(
             "task_id", taskId,
-            "status", "PENDING",
+            "status", "pending",
             "message", "区域识别任务已提交，请稍后查询结果。"
         ));
     }
@@ -71,7 +76,7 @@ public class TaskController {
         }
         
         String status = (String) callbackData.get("status");
-        task.setStatus("SUCCESS".equals(status) ? "SUCCESS" : "FAILED");
+        task.setStatus("SUCCESS".equalsIgnoreCase(status) ? "success" : "failed");
         
         try {
             task.setResult(objectMapper.writeValueAsString(callbackData.get("result_payload")));
@@ -100,16 +105,19 @@ public class TaskController {
     @GetMapping("/{task_id}")
     @Operation(summary = "查询任务状态")
     public ResponseEntity<Map<String, Object>> getTaskStatus(@PathVariable String task_id) {
-        Task task = taskRepository.findById(task_id).orElse(null);
-        if (task == null) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        return ResponseEntity.ok(Map.of(
-            "task_id", task.getId(),
-            "status", task.getStatus(),
-            "result", task.getResult(),
-            "logs", task.getLogs()
-        ));
+        Task task = projectAnalysisService.getOwnedTask(task_id);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("task_id", task.getId());
+        response.put("taskId", task.getId());
+        response.put("project_id", task.getProjectId());
+        response.put("status", task.getStatus());
+        response.put("progress", task.getProgress());
+        response.put("currentStep", task.getCurrentStep());
+        response.put("result", task.getResult());
+        response.put("logs", task.getLogs());
+        response.put("createdAt", task.getCreatedAt());
+        response.put("startedAt", task.getStartedAt());
+        response.put("finishedAt", task.getFinishedAt());
+        return ResponseEntity.ok(response);
     }
 }

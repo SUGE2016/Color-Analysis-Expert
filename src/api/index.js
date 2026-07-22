@@ -74,9 +74,14 @@ function attachAuthInterceptors(client, { withUploadError = false } = {}) {
         if (error.config?.skipErrorToast) {
           return Promise.reject(error);
         }
+        const responseData = response.data;
+        const isBlobError = typeof Blob !== 'undefined' && responseData instanceof Blob;
+        const responseMessage = isBlobError
+          ? ''
+          : (responseData?.message || (typeof responseData === 'string' ? responseData : ''));
         switch (response.status) {
           case 400:
-            toastErrorOnce(response.data?.message || response.data || '请求参数错误');
+            toastErrorOnce(responseMessage || '请求参数错误');
             break;
           case 401:
             if (!error.config?.skipAuth) {
@@ -96,8 +101,11 @@ function attachAuthInterceptors(client, { withUploadError = false } = {}) {
           case 409:
             // Don't show toast for 409 - let the caller handle it
             break;
+          case 422:
+            toastErrorOnce(responseMessage || '请求数据未满足处理条件');
+            break;
           case 500:
-            toastErrorOnce('服务器内部错误');
+            toastErrorOnce(responseMessage || '服务器内部错误');
             break;
           default:
             toastErrorOnce(`请求失败: ${response.status}`);

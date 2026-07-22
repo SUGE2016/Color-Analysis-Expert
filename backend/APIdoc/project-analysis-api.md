@@ -1,181 +1,92 @@
-# 项目分析模块接口文档
+# 项目分析 API
 
-## 1. 模块说明
+## 1. 契约概览
 
-项目分析模块用于串联：
+- 所有接口需要 `Authorization: Bearer <token>`。
+- 项目 owner 始终取自 JWT，客户端传入的 `ownerId` 会被忽略。
+- 项目支持多个 `datasetIds`，且 `templateId` 必填。
+- 创建后为 `draft`；向导每一步通过 `PUT` 持续保存配置。
+- `/run` 为异步接口，只接受分析步骤，不接受任何服务器文件路径。
+- 涂色面积分析不在本期范围内。
 
-1. 数据集管理模块（读取数据集图片目录）；
-2. Python 算法模块（图像校正、HSV 提取、熵计算、主色统计等）；
-3. 任务状态管理（Task 记录）；
-4. 项目状态管理（Project 状态流转）。
+## 2. 状态机
 
-当前实现为 **同步执行版本（MVP）**：调用 `POST /api/projects/{id}/run` 时会在本次请求内完成流水线执行。
+Project：`draft -> queued -> running -> completed | failed | cancelled`
 
----
+Task：`queued -> running -> success | failed | cancelled`
 
-## 2. 主要构成文件（项目内）
+Task 同时返回 `progress`、`currentStep`、`startedAt`、`finishedAt`、`logs`。取消中的运行任务会在流水线边界结束为 `cancelled`；已产生的中间文件仅用于诊断，不开放正式报告。
 
-### Spring Boot 侧
-
-- `src/main/java/com/coloranalysisbackend/model/Project.java`
-- `src/main/java/com/coloranalysisbackend/model/Task.java`
-- `src/main/java/com/coloranalysisbackend/repository/ProjectRepository.java`
-- `src/main/java/com/coloranalysisbackend/repository/TaskRepository.java`
-- `src/main/java/com/coloranalysisbackend/service/ProjectAnalysisService.java`
-- `src/main/java/com/coloranalysisbackend/service/PythonClientService.java`
-- `src/main/java/com/coloranalysisbackend/controller/ProjectController.java`
-- `src/main/java/com/coloranalysisbackend/service/DatasetService.java`（提供 dataset 对应存储目录）
-
-### Python 侧
-
-- `algorithm-service/app_http.py`（统一 HTTP 算法入口）
-- `algorithm-service/algo/image_correction.py`
-- `algorithm-service/algo/all_hsv.py`
-- `algorithm-service/algo/entropy_region.py`
-- `algorithm-service/algo/main_color.py`
-- `algorithm-service/algo/main_color_number.py`
-- `algorithm-service/algo/edge_color.py`
-
----
-
-## 3. 项目分析状态机
-
-### Project.status
-- `created` -> `running` -> `completed` / `failed`
-
-### Task.status
-- `pending` -> `success` / `failed`
-
-> 说明：当前版本未拆分 `running` 的 task 中间态（可在后续迭代补充 started_at/finished_at 与进度字段）。
-
----
-
-## 4. 接口定义
-
-所有接口都需要 JWT（Header: `Authorization: Bearer <token>`）。
-
-### 4.1 创建分析项目
+## 3. 创建项目草稿
 
 `POST /api/projects`
-
-Request JSON:
 
 ```json
 {
   "name": "项目A",
-  "ownerId": "user-uuid",
-  "datasetId": "dataset-uuid",
-  "templateId": "template-uuid-or-null",
+  "datasetIds": ["dataset-uuid-1", "dataset-uuid-2"],
+  "templateId": "template-uuid",
   "config": {
-    "scene": "儿童发展评估"
+    "description": "示例",
+    "currentStep": 0,
+    "edgeAnalysisEnabled": false
   }
 }
 ```
 
-Response 200: `Project` 对象。
+成功返回 HTTP 200。返回对象包含真实项目 ID、`datasetIds`、`templateSnapshot`、`createdAt` 和 `updatedAt`。同一 owner 下项目名重复返回 409；数据集、模板或模板资源无效返回 422；引用其他用户数据集返回 403。
 
----
+## 4. 持续保存草稿
 
-### 4.2 查询项目列表
-
-`GET /api/projects`
-
-Response 200: `Project[]`
-
----
-
-### 4.3 查询单个项目
-
-`GET /api/projects/{projectId}`
-
-Response 200: `Project`
-
----
-
-### 4.4 执行项目分析（核心）
-
-`POST /api/projects/{projectId}/run`
-
-Request JSON:
+`PUT /api/projects/{projectId}`
 
 ```json
 {
-  "steps": [
-    "correction",
-    "hsv",
-    "edge_hsv",
-    "entropy",
-    "main_color",
-    "main_color_number",
-    "edge_color"
-  ],
-  "modelImagePath": "algorithm-service/model_image.jpg",
-  "butterflyJsonPath": "algorithm-service/butterfly.json",
-  "edgeJsonPath": "algorithm-service/edge.json",
-  "notes": "首次跑全流程"
+  "name": "项目A",
+  "datasetIds": ["dataset-uuid-1", "dataset-uuid-2"],
+  "templateId": "template-uuid",
+  "config": {
+    "currentStep": 3,
+    "regions": [],
+    "imageAnalysisConfig": {},
+    "edgeAnalysisEnabled": false
+  }
 }
 ```
 
-Response 200: `Task` 对象（包含 `result` 字段，内含 `workspaceDir` 与输出文件路径）。
+仅 owner 可更新。`queued` 或 `running` 项目不可编辑，返回 409。
 
-#### 可选步骤说明
-- `correction`：图像校正
-- `hsv`：掩膜 HSV 提取
-- `edge_hsv`：边缘区域 HSV 提取
-- `entropy`：HSV 熵计算
-- `main_color`：主色统计
-- `main_color_number`：颜色种类统计
-- `edge_color`：边缘主色统计
+## 5. 异步运行
 
----
+`POST /api/projects/{projectId}/run`
 
-### 4.5 查询项目任务列表
+```json
+{
+  "steps": ["edge_hsv", "edge_color"]
+}
+```
 
-`GET /api/projects/{projectId}/tasks`
+后端固定执行基础步骤 `correction`、`hsv`、`entropy`、`main_color`、`main_color_number`；启用出界/边缘分析时追加 `edge_hsv`、`edge_color`。模板图片由项目模板快照推导，区域定义仅来自项目步骤 3 持久化的 `config.regions`；数据集输入目录和任务工作区均由后端推导。`config.regions` 为空或格式无效时，`/run` 在创建 Task 前返回 422。
 
-Response 200: `Task[]`
+成功受理返回 HTTP 202 和 Task（同时提供 `id` 与 `taskId`），并通过 `Location: /api/tasks/{taskId}` 指向查询接口。空数据集返回 422，且不会创建 Task。存在活动 Task 时重复运行返回 409。请求包含 `modelImagePath`、`butterflyJsonPath` 或 `edgeJsonPath` 时返回 400。
 
----
+成功任务必须产生非空的：
 
-## 5. 当前已接入算法能力
+- `mainColorCsv`
+- `mainColorNumberCsv`
+- `entropyCsv`
+- `edgeColorCsv`（仅启用边缘/出界分析时必需）
 
-1. 图像校正（`image_correction.process_folder`）
-2. 掩膜 HSV 提取（`all_hsv.process_images_HSV`）
-3. HSV 熵计算（`entropy_region.process_entropy_csv`）
-4. 主色统计（`main_color.process_csv`）
-5. 色彩种类统计（`main_color_number.process_csv`）
-6. 边缘主色统计（`edge_color.process_csv`）
+缺少必需输出会把 Task 和 Project 标记为 `failed`。
 
----
+## 6. 查询与取消
 
-## 6. 已识别疏漏与后续建议
+- `GET /api/projects`：只返回当前用户项目。
+- `GET /api/projects/{id}`：项目详情及模板快照。
+- `GET /api/projects/{id}/tasks`：任务列表，最新任务在前。
+- `GET /api/tasks/{taskId}`：真实任务状态和进度。
+- `POST /api/projects/{id}/cancel`：取消最新的 queued/running Task。
+- `POST /api/projects/{id}/stop`：`cancel` 的兼容别名。
+- `DELETE /api/projects/{id}`：删除无活动任务的项目及其 Task。
 
-### 已补的疏漏
-- 多个 Python 脚本原先是导入即执行，已改为 `if __name__ == '__main__'` 保护；
-- `app_http.py` 原来有重复 `main` 与 `eval` 风险，已改为安全 JSON 解析；
-- Java -> Python multipart 之前直接传 `byte[]`，现已改为带文件名的 multipart 资源。
-
-### 仍需后续迭代（建议）
-1. **异步任务执行**：目前 `/run` 为同步。建议迁移到 RabbitMQ/Celery 或 Spring 异步任务池 + 回调。
-2. **项目进度反馈**：当前没有百分比进度，仅最终 success/failed。
-3. **模板管理联动**：`templateId` 只是保留字段，尚未驱动模板配置逻辑。
-4. **结果入库细粒度化**：目前主要输出到文件并写入 Task.result JSON，尚未写入 `results_summary` 表。
-5. **路径参数规范化**：`modelImagePath`/json 路径当前由调用方传入，后续可改为模板管理后的逻辑引用。
-
----
-
-## 7. 典型调用顺序
-
-1. `POST /api/datasets` 创建数据集
-2. `POST /api/datasets/{id}/images/upload` 上传图片
-3. `POST /api/projects` 创建分析项目
-4. `POST /api/projects/{id}/run` 执行分析
-5. `GET /api/projects/{id}/tasks` 查询任务结果
-
----
-
-## 8. 说明
-
-文档位置：`APIdoc/project-analysis-api.md`
-
-后续进入“项目报告生成模块”时，可直接基于 `Task.result` 里的输出路径与 `results_summary` 表进行报告聚合。
+详情、更新、运行、取消、任务查询和删除均校验 owner；跨用户访问返回 403，资源不存在返回 404。

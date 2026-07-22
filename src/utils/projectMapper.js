@@ -7,9 +7,12 @@ export const ANALYSIS_STATUS = {
 
 const BACKEND_STATUS_MAP = {
   created: ANALYSIS_STATUS.NOT_STARTED,
+  draft: ANALYSIS_STATUS.NOT_STARTED,
+  queued: ANALYSIS_STATUS.IN_PROGRESS,
   running: ANALYSIS_STATUS.IN_PROGRESS,
   completed: ANALYSIS_STATUS.COMPLETED,
   failed: ANALYSIS_STATUS.FAILED,
+  cancelled: ANALYSIS_STATUS.FAILED,
 };
 
 function parseConfig(config) {
@@ -22,14 +25,15 @@ function parseConfig(config) {
   }
 }
 
-export function mapBackendProject(project, datasetNameMap = {}) {
+export function mapBackendProject(project, datasetNameMap = {}, latestTask = null) {
   const status = BACKEND_STATUS_MAP[project.status] || ANALYSIS_STATUS.NOT_STARTED;
   const config = parseConfig(project.config);
-  const progress =
+  const datasetIds = (project.datasetIds || [project.datasetId]).filter(Boolean);
+  const progress = latestTask?.progress ?? (
     status === ANALYSIS_STATUS.COMPLETED ? 100
-      : status === ANALYSIS_STATUS.IN_PROGRESS ? 50
-        : status === ANALYSIS_STATUS.FAILED ? 0
-          : 0;
+      : status === ANALYSIS_STATUS.IN_PROGRESS ? 0
+        : 0
+  );
 
   return {
     id: project.id,
@@ -37,25 +41,28 @@ export function mapBackendProject(project, datasetNameMap = {}) {
     targetCount: config.targetCount ?? 0,
     createTime: project.createdAt || '—',
     updateTime: project.updatedAt || project.createdAt || '—',
-    year: new Date().getFullYear(),
+    year: project.createdAt ? new Date(project.createdAt).getFullYear() : new Date().getFullYear(),
     status,
+    backendStatus: project.status,
     progress,
-    datasetName: datasetNameMap[project.datasetId] || project.datasetId || '—',
-    datasetCount: 1,
-    creator: project.ownerId || '—',
+    datasetName: datasetIds.map((id) => datasetNameMap[id] || id).join('、') || '—',
+    datasetCount: datasetIds.length,
+    creator: project.ownerId || '当前用户',
     description: config.description || '',
     raw: project,
+    latestTask,
   };
 }
 
 export function mapBackendTemplate(template) {
+  const imageAvailable = Boolean(template.imageAvailable);
   return {
     id: template.id,
     name: template.name,
     description: '',
     uploadBy: '—',
-    hasImage: Boolean(template.templateImageKey),
-    imageAvailable: Boolean(template.templateImageKey),
+    hasImage: imageAvailable,
+    imageAvailable,
     templateImageKey: template.templateImageKey,
     regionsJson: template.regionsJson,
     createdAt: template.createdAt,
@@ -65,10 +72,10 @@ export function mapBackendTemplate(template) {
 
 export function mapCannyRegions(apiRegions = []) {
   const colors = ['#1890ff', '#52c41a', '#faad14', '#722ed1', '#eb2f96', '#fa541c'];
-  return apiRegions.map((r, idx) => ({
-    regionId: r.region_id || r.regionId || `r${idx}`,
-    name: r.name || `区域 ${idx + 1}`,
-    polygon: (r.points || []).map((p) => ({ x: p.x, y: p.y })),
-    color: colors[idx % colors.length],
+  return apiRegions.map((region, index) => ({
+    regionId: region.region_id || region.regionId || `r${index}`,
+    name: region.name || `区域 ${index + 1}`,
+    polygon: (region.points || []).map((point) => ({ x: point.x, y: point.y })),
+    color: colors[index % colors.length],
   }));
 }

@@ -15,6 +15,8 @@ import {
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { colors, styles } from '../../components/common/constants';
 import { pointInPolygon } from '../../utils/hitTest';
+import { createTemporaryProjectId, isTemporaryProjectId } from '../../utils/incompleteProjects';
+import { loadSelectedImage, resolveSelectedImage } from '../../utils/selectedImageLoader';
 
 // API imports
 import { datasetApi } from '../../api/dataset';
@@ -30,7 +32,6 @@ const { Title, Text } = Typography;
 // 分析方法类型
 const ANALYSIS_METHODS = [
   { key: 'color_distribution', label: '颜色分布分析', description: '统计指定区域内各颜色的占比', icon: <BgColorsOutlined />, color: '#1890ff' },
-  { key: 'area_calculation', label: '涂色面积分析', description: '计算指定区域内涂色部分的面积', icon: <BorderOutlined />, color: '#52c41a' },
   { key: 'boundary_check', label: '出界分析', description: '判断涂色是否超出预设边界', icon: <AimOutlined />, color: '#fa8c16' },
   { key: 'line_feature', label: '线条特征分析', description: 'V1.0暂不实现（如线条粗细、平滑度等）', icon: <EditOutlined />, color: '#bfbfbf', disabled: true },
 ];
@@ -60,6 +61,8 @@ const AnalysisCreatePage = () => {
 
   // 从URL参数或location state获取项目ID
   const projectId = urlProjectId || location.state?.projectId;
+  const draftStorageIdRef = useRef(projectId || null);
+  if (!draftStorageIdRef.current) draftStorageIdRef.current = createTemporaryProjectId();
 
   // 使用真实API获取数据集和模板列表
   // 数据集和模板的加载状态
@@ -101,19 +104,19 @@ const AnalysisCreatePage = () => {
     setTemplatesLoading(true);
     try {
       const templates = await templateApi.getTemplates();
-      setBackendTemplates(templates || []);
-      // 更新模板图片列表
-      if (templates && templates.length > 0) {
-        setTemplateImages(templates.map(t => ({
-          id: t.id,
-          name: t.name,
-          templateImageKey: t.templateImageKey,
-          imageAvailable: t.imageAvailable
-        })));
-      }
+      const validTemplates = (templates || []).filter((template) => template.imageAvailable);
+      setBackendTemplates(validTemplates);
+      setTemplateImages(validTemplates.map(t => ({
+        id: t.id,
+        name: t.name,
+        templateImageKey: t.templateImageKey,
+        imageAvailable: true,
+        regionsJson: t.regionsJson
+      })));
     } catch (error) {
       message.error('获取模板失败');
       setBackendTemplates([]);
+      setTemplateImages([]);
     } finally {
       setTemplatesLoading(false);
     }
@@ -131,13 +134,29 @@ const AnalysisCreatePage = () => {
   const [selectedDatasets, setSelectedDatasets] = useState([]);
   const [selectedTemplateImage, setSelectedTemplateImage] = useState(null);
   // eslint-disable-next-line no-unused-vars
-  const [createdProjectId, setCreatedProjectId] = useState(null); // 后端创建的项目ID
+  const [createdProjectId, setCreatedProjectId] = useState(
+    projectId && !isTemporaryProjectId(projectId) ? projectId : null
+  ); // 后端创建的项目ID
 
   // 步骤2: 图像矫正
   const [correctionProgress, setCorrectionProgress] = useState(0);
   const [isCorrecting, setIsCorrecting] = useState(false);
   const [correctionComplete, setCorrectionComplete] = useState(false);
   const [correctedImages, setCorrectedImages] = useState([]);
+  const correctionObjectUrlsRef = useRef(new Set());
+
+  const clearCorrectionObjectUrls = useCallback(() => {
+    correctionObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    correctionObjectUrlsRef.current.clear();
+  }, []);
+
+  const createCorrectionObjectUrl = useCallback((blob) => {
+    const url = URL.createObjectURL(blob);
+    correctionObjectUrlsRef.current.add(url);
+    return url;
+  }, []);
+
+  useEffect(() => () => clearCorrectionObjectUrls(), [clearCorrectionObjectUrls]);
 
   // 步骤3: 边缘检测/区域定义
   const [regions, setRegions] = useState([]);
@@ -165,7 +184,8 @@ const AnalysisCreatePage = () => {
   const [selectedImageForConfig, setSelectedImageForConfig] = useState(null);
   const [selectedRegionForConfig, setSelectedRegionForConfig] = useState(null);
   const step4CanvasRef = useRef(null);
-  const step4ImgRef = useRef(null);
+  const [step4LoadedImage, setStep4LoadedImage] = useState(null);
+  const [step4ImageLoading, setStep4ImageLoading] = useState(false);
 
   const totalSteps = 4;
   const stepTitles = ['选择数据集与模板', '图像矫正', '定义分析区域', '配置分析项'];
@@ -174,14 +194,10 @@ const AnalysisCreatePage = () => {
   // ==================== 步骤控制 ====================
 
   // 生成唯一ID
-  const generateUniqueId = useCallback(() => {
-    return `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }, []);
-
   // 保存项目到本地存储（用于中途退出后恢复）
   const saveProjectToStorage = useCallback(() => {
     const projectData = {
-      id: projectId || generateUniqueId(),
+      id: createdProjectId || draftStorageIdRef.current,
       name: projectName,
       description: projectDescription,
       currentStep,
@@ -205,7 +221,30 @@ const AnalysisCreatePage = () => {
 
     localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(savedProjects));
     return projectData.id;
-  }, [projectId, projectName, projectDescription, currentStep, selectedDatasets, selectedTemplateImage, correctionComplete, correctedImages, regions, imageAnalysisConfig, generateUniqueId]);
+  }, [createdProjectId, projectName, projectDescription, currentStep, selectedDatasets, selectedTemplateImage, correctionComplete, correctedImages, regions, imageAnalysisConfig]);
+
+  const persistedConfig = useMemo(() => ({
+    description: projectDescription,
+    currentStep,
+    correctionComplete,
+    regions,
+    imageAnalysisConfig,
+    edgeAnalysisEnabled: JSON.stringify(imageAnalysisConfig).includes('boundary_check'),
+  }), [projectDescription, currentStep, correctionComplete, regions, imageAnalysisConfig]);
+
+  // localStorage 只作为断网兜底；后端 draft 是项目配置的真实来源。
+  useEffect(() => {
+    if (!createdProjectId || !projectName || !selectedTemplateImage || selectedDatasets.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      analysisApi.updateProject(createdProjectId, {
+        name: projectName,
+        datasetIds: selectedDatasets.map((dataset) => dataset.id),
+        templateId: selectedTemplateImage.id,
+        config: persistedConfig,
+      }).catch(() => saveProjectToStorage());
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [createdProjectId, projectName, selectedDatasets, selectedTemplateImage, persistedConfig, saveProjectToStorage]);
 
   // 从本地存储加载项目
   const loadProjectFromStorage = useCallback((id) => {
@@ -213,6 +252,7 @@ const AnalysisCreatePage = () => {
     const project = savedProjects.find(p => p.id === id);
     
     if (project) {
+      draftStorageIdRef.current = project.id;
       setProjectName(project.name || '');
       setProjectDescription(project.description || '');
       setCurrentStep(project.currentStep || 0);
@@ -227,13 +267,34 @@ const AnalysisCreatePage = () => {
     }
   }, []);
 
-  // 组件挂载时检查是否有要恢复的项目
+  // 编辑时以后端 draft 为准；仅在后端不可用时回退到 localStorage。
   useEffect(() => {
-    if (projectId && !isRestored) {
+    if (!projectId || isRestored || backendDatasets.length === 0 || templateImages.length === 0) return;
+    if (isTemporaryProjectId(projectId)) {
       loadProjectFromStorage(projectId);
+      setIsRestored(true);
+      return;
     }
+    analysisApi.getProjectDetail(projectId).then((project) => {
+      const config = typeof project.config === 'string' ? JSON.parse(project.config || '{}') : (project.config || {});
+      const ids = project.datasetIds || (project.datasetId ? [project.datasetId] : []);
+      setProjectName(project.name || '');
+      setProjectDescription(config.description || '');
+      setCurrentStep(Math.min(config.currentStep || 0, totalSteps - 1));
+      setSelectedDatasets(ids.map((id) => backendDatasets.find((dataset) => dataset.id === id)).filter(Boolean));
+      setSelectedTemplateImage(templateImages.find((template) => template.id === project.templateId) || null);
+      setCorrectionComplete(Boolean(config.correctionComplete));
+      setRegions(config.regions || []);
+      setImageAnalysisConfig(config.imageAnalysisConfig || {});
+      setCreatedProjectId(project.id);
+      setIsRestored(true);
+      message.success('已从后端恢复项目草稿');
+    }).catch(() => {
+      loadProjectFromStorage(projectId);
+      setIsRestored(true);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, isRestored]);
+  }, [projectId, isRestored, backendDatasets, templateImages]);
 
   // 定期自动保存（每30秒）
   useEffect(() => {
@@ -256,14 +317,30 @@ const AnalysisCreatePage = () => {
         setLoading(true);
         
         // 1. 创建分析项目
-        const project = await analysisApi.createProject({
-          name: projectName,
-          description: projectDescription,
-          datasetIds: selectedDatasets.map(d => d.id),
-          templateId: selectedTemplateImage.id
-        });
+        const project = createdProjectId
+          ? await analysisApi.updateProject(createdProjectId, {
+              name: projectName,
+              datasetIds: selectedDatasets.map(d => d.id),
+              templateId: selectedTemplateImage.id,
+              config: { ...persistedConfig, currentStep: 1 },
+            })
+          : await analysisApi.createProject({
+              name: projectName,
+              datasetIds: selectedDatasets.map(d => d.id),
+              templateId: selectedTemplateImage.id,
+              config: { ...persistedConfig, currentStep: 1 },
+            });
         
+        const temporaryDraftId = draftStorageIdRef.current;
         setCreatedProjectId(project.id);
+        draftStorageIdRef.current = project.id;
+        if (temporaryDraftId !== project.id) {
+          const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
+          localStorage.setItem(
+            'incompleteAnalysisProjects',
+            JSON.stringify(savedProjects.filter((saved) => String(saved.id) !== String(temporaryDraftId)))
+          );
+        }
         message.success('项目创建成功，进入图像矫正步骤');
         
         // 2. 获取选中数据集的所有图片
@@ -307,6 +384,19 @@ const AnalysisCreatePage = () => {
     }
 
     if (currentStep < totalSteps - 1) {
+      if (createdProjectId) {
+        try {
+          await analysisApi.updateProject(createdProjectId, {
+            name: projectName,
+            datasetIds: selectedDatasets.map((dataset) => dataset.id),
+            templateId: selectedTemplateImage.id,
+            config: { ...persistedConfig, currentStep: currentStep + 1 },
+          });
+        } catch {
+          saveProjectToStorage();
+          return;
+        }
+      }
       setCurrentStep(currentStep + 1);
       // 步骤切换时自动保存
       saveProjectToStorage();
@@ -321,18 +411,21 @@ const AnalysisCreatePage = () => {
     setLoading(true);
     
     try {
-      // 检查前后端连接是否正常
-      try {
-        await analysisApi.getAnalysisProjects();
-      } catch (error) {
-        message.error('前后端连接失败，请检查网络连接或后端服务状态');
-        setLoading(false);
-        return;
-      }
+      const activeProjectId = createdProjectId || projectId;
+      if (!activeProjectId) throw new Error('项目草稿尚未创建');
+      await analysisApi.updateProject(activeProjectId, {
+        name: projectName,
+        datasetIds: selectedDatasets.map((dataset) => dataset.id),
+        templateId: selectedTemplateImage.id,
+        config: { ...persistedConfig, currentStep: totalSteps },
+      });
+      await analysisApi.startAnalysis(activeProjectId, {
+        steps: persistedConfig.edgeAnalysisEnabled ? ['edge_hsv', 'edge_color'] : [],
+      });
 
       // 提交成功后清除本地存储中的临时项目
       const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
-      const filtered = savedProjects.filter(p => p.id !== projectId);
+      const filtered = savedProjects.filter(p => p.id !== activeProjectId && p.id !== projectId);
       localStorage.setItem('incompleteAnalysisProjects', JSON.stringify(filtered));
       
       setLoading(false);
@@ -383,229 +476,112 @@ const AnalysisCreatePage = () => {
   // ==================== 步骤2: 图像矫正 ====================
 
   useEffect(() => {
-    if (currentStep === 1 && !correctionComplete && !isCorrecting && selectedDatasets.length > 0) {
-      startBackendCorrection();
+    if (currentStep === 1 && correctedImages.length === 0 && correctionComplete) {
+      // 校正结果是当前页面内的 Blob；刷新后需要重新执行，不能沿用失效的完成状态。
+      setCorrectionComplete(false);
+      setCorrectionProgress(0);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep]);
+  }, [currentStep, correctedImages.length, correctionComplete]);
 
-  // eslint-disable-next-line no-unused-vars
-  const startCorrection = () => {
-    setIsCorrecting(true);
-    setCorrectionProgress(0);
-    const totalImages = selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0);
-    const templatePreviewUrl = selectedTemplateImage?.id
-      ? templateApi.getTemplateImageUrl(selectedTemplateImage.id)
-      : '';
-    const mockCorrected = [];
-    let imgIndex = 1;
-    selectedDatasets.forEach(ds => {
-      for (let i = 0; i < Math.min(ds.imageCount ?? ds.fileCount ?? 0, 8); i++) {
-        mockCorrected.push({
-          id: `corrected-${imgIndex++}`,
-          name: `${ds.name}_图片${i + 1}`,
-          original: templatePreviewUrl,
-          corrected: templatePreviewUrl,
-          dataset: ds.name,
-          status: 'pending'
-        });
-      }
-    });
-    setCorrectedImages(mockCorrected);
-
-    const interval = setInterval(() => {
-      setCorrectionProgress(prev => {
-        const newProgress = prev + Math.floor(Math.random() * 5) + 2;
-        if (newProgress >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setIsCorrecting(false);
-            setCorrectionComplete(true);
-            setCorrectedImages(prev => prev.map(img => ({ ...img, status: 'completed' })));
-            message.success(`完成 ${totalImages} 张图片的矫正`);
-          }, 500);
-          return 100;
-        }
-        setCorrectedImages(prev => prev.map((img, idx) =>
-          idx < (newProgress / 100) * prev.length ? { ...img, status: 'completed' } : img
-        ));
-        return newProgress;
-      });
-    }, 200);
+  const requestCorrectedImage = async (image, templateBlob) => {
+    const imageBlob = await datasetApi.getDatasetImageFile(image.datasetId, image.id);
+    const formData = new FormData();
+    formData.append('model', templateBlob, 'template.png');
+    formData.append('image', imageBlob, image.name || 'image.png');
+    const result = await toolApi.alignImage(formData);
+    const correctedBlob = result instanceof Blob ? result : new Blob([result], { type: 'image/png' });
+    if (correctedBlob.size === 0) throw new Error('校正接口返回了空图片');
+    return correctedBlob;
   };
 
   const startBackendCorrection = async () => {
     setIsCorrecting(true);
+    setCorrectionComplete(false);
     setCorrectionProgress(0);
-    
-    const totalImages = selectedDatasets.reduce((sum, ds) => sum + (ds.imageCount ?? ds.fileCount ?? 0), 0);
-    message.info('正在发送数据到后端进行矫正...');
-    
+    clearCorrectionObjectUrls();
     try {
-      // 准备图片列表用于矫正
-      const imagesForCorrection = [];
-      selectedDatasets.forEach(ds => {
-        for (let i = 0; i < Math.min(ds.imageCount ?? ds.fileCount ?? 0, 8); i++) {
-          imagesForCorrection.push({
-            id: `corrected-${i}`,
-            name: `${ds.name}_图片${i + 1}`,
-            dataset: ds.name,
-            status: 'pending'
-          });
-        }
-      });
-      setCorrectedImages(imagesForCorrection);
-      setCorrectedImages([]);
-      
-      // 调用API对每个数据集的图片进行矫正
-      let processedCount = 0;
-      for (const ds of selectedDatasets) {
-        // 获取数据集图片
-        const images = await datasetApi.getDatasetImages(ds.id);
-        
-        for (const img of images || []) {
-          setCorrectedImages(prev => (
-            prev.some(item => item.id === img.id)
-              ? prev
-              : [...prev, {
-                  id: img.id,
-                  datasetId: ds.id,
-                  name: img.fileName || img.name || img.id,
-                  dataset: ds.name,
-                  status: 'pending',
-                  corrected: null,
-                  original: img.url || img.imageUrl || null
-                }]
-          ));
-          // 创建FormData，包含模板(model)和目标图片(image)
-          const formData = new FormData();
-
-          // 从后端获取模板图片
-          if (!selectedTemplateImage.imageAvailable) {
-            throw new Error('该模板照片不存在，请重新上传模板照片后再使用');
-          }
-          const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
-          formData.append('model', templateBlob, 'template.png');
-          
-          // 将目标图片URL转换为文件
-          const imageBlob = await datasetApi.getDatasetImageFile(ds.id, img.id);
-          formData.append('image', imageBlob, img.fileName || img.name || 'image.png');
-          
-          // 调用对齐API
-          try {
-            const result = await toolApi.alignImage(formData);
-            console.log('alignImage result type:', result?.constructor?.name, 'size:', result?.size);
-            const correctedBlob = result instanceof Blob ? result : new Blob([result]);
-            console.log('correctedBlob type:', correctedBlob?.constructor?.name, 'size:', correctedBlob?.size);
-
-            // 上传矫正后的图片到后端数据集
-            const correctedFileName = `corrected_${img.fileName || img.name || img.id}.png`;
-            console.log('Calling uploadDatasetImage with:', { datasetId: ds.id, blobSize: correctedBlob?.size, fileName: correctedFileName });
-            const uploadResponse = await datasetApi.uploadDatasetImage(
-              ds.id,
-              correctedBlob,
-              { subjectCode: 'corrected', fileName: correctedFileName }
-            );
-            
-            const correctedUrl = datasetApi.imageFileUrl(ds.id, uploadResponse.data.id);
-            
-            // 更新矫正后的图片
-            setCorrectedImages(prev => prev.map(item => 
-              item.id === img.id
-                ? { ...item, corrected: correctedUrl, correctedImageId: uploadResponse.data.id, status: 'completed' }
-                : item
-            ));
-          } catch (error) {
-            // 处理矫正失败的情况
-            console.error('图片矫正失败:', img.id, error);
-            console.error('Error details:', {
-              message: error.message,
-              response: error.response,
-              status: error.response?.status,
-              data: error.response?.data,
-              config: error.config
-            });
-            const errorMessage = error.response?.status === 422
-              ? '没有检测到角点，矫正失败'
-              : (error.message || '矫正失败');
-
-            setCorrectedImages(prev => prev.map(item =>
-              item.id === img.id
-                ? { ...item, status: 'failed', error: errorMessage }
-                : item
-            ));
-            message.warning(`${img.fileName || img.name}: ${errorMessage}`);
-          }
-          
-          processedCount++;
-          setCorrectionProgress(Math.round((processedCount / totalImages) * 100));
-        }
+      const images = [];
+      for (const dataset of selectedDatasets) {
+        const datasetImages = await datasetApi.getDatasetImages(dataset.id);
+        images.push(...(datasetImages || []).map((image) => ({
+          id: image.id,
+          datasetId: dataset.id,
+          name: image.fileName || image.name || image.id,
+          dataset: dataset.name,
+          original: datasetApi.imageFileUrl(dataset.id, image.id),
+          corrected: null,
+          status: 'pending',
+        })));
       }
-      
-      setIsCorrecting(false);
-      setCorrectionComplete(true);
-      message.success(`后端矫正完成，共处理 ${totalImages} 张图片`);
+      if (images.length === 0) throw new Error('所选数据集中没有可校正的图片');
+      if (!selectedTemplateImage?.imageAvailable) {
+        throw new Error('该模板照片不存在，请重新上传模板照片后再使用');
+      }
+
+      setCorrectedImages(images);
+      const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
+      let failedCount = 0;
+
+      for (let index = 0; index < images.length; index += 1) {
+        const image = images[index];
+        try {
+          const correctedBlob = await requestCorrectedImage(image, templateBlob);
+          const correctedUrl = createCorrectionObjectUrl(correctedBlob);
+          setCorrectedImages((items) => items.map((item) => item.id === image.id
+            ? { ...item, corrected: correctedUrl, correctedBlob, status: 'completed', error: null }
+            : item));
+        } catch (error) {
+          failedCount += 1;
+          const errorMessage = error.response?.status === 422
+            ? '没有检测到角点，矫正失败'
+            : (error.message || '矫正失败');
+          setCorrectedImages((items) => items.map((item) => item.id === image.id
+            ? { ...item, status: 'failed', error: errorMessage }
+            : item));
+          message.warning(`${image.name}: ${errorMessage}`);
+        }
+        setCorrectionProgress(Math.round(((index + 1) / images.length) * 100));
+      }
+
+      setCorrectionComplete(failedCount === 0);
+      if (failedCount === 0) {
+        message.success(`完成 ${images.length} 张图片的同步矫正`);
+      } else {
+        message.warning(`${images.length - failedCount}/${images.length} 张图片矫正成功，请重试失败图片`);
+      }
     } catch (error) {
+      setCorrectedImages([]);
       message.error('图像矫正失败：' + (error.message || '未知错误'));
+    } finally {
       setIsCorrecting(false);
     }
   };
 
-  // 重试单张图片矫正
   const retryCorrection = async (img) => {
-    setCorrectedImages(prev => prev.map(item => 
-      item.id === img.id
-        ? { ...item, status: 'pending', error: null }
-        : item
-    ));
-
+    setCorrectionComplete(false);
+    setCorrectedImages((items) => items.map((item) => item.id === img.id
+      ? { ...item, status: 'pending', error: null }
+      : item));
     try {
-      const formData = new FormData();
-      
-      // 从后端获取模板图片
-      if (!selectedTemplateImage.imageAvailable) {
-        throw new Error('该模板照片不存在，请重新上传模板照片后再使用');
-      }
       const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
-      formData.append('model', templateBlob, 'template.png');
-      
-      // 将目标图片URL转换为文件
-      const imageBlob = await datasetApi.getDatasetImageFile(img.datasetId, img.id);
-      formData.append('image', imageBlob, img.fileName || img.name || 'image.png');
-      
-      // 调用对齐API
-      const result = await toolApi.alignImage(formData);
-      const correctedBlob = result instanceof Blob ? result : new Blob([result]);
-      
-      // 上传矫正后的图片到后端数据集
-      const correctedFileName = `corrected_${img.fileName || img.name || img.id}.png`;
-      const uploadResponse = await datasetApi.uploadDatasetImage(
-        img.datasetId,
-        correctedBlob,
-        { subjectCode: 'corrected', fileName: correctedFileName }
-      );
-      
-      const correctedUrl = datasetApi.imageFileUrl(img.datasetId, uploadResponse.data.id);
-      
-      // 更新矫正后的图片
-      setCorrectedImages(prev => prev.map(item => 
-        item.id === img.id
-          ? { ...item, corrected: correctedUrl, correctedImageId: uploadResponse.data.id, status: 'completed' }
-          : item
-      ));
-      
+      const correctedBlob = await requestCorrectedImage(img, templateBlob);
+      const correctedUrl = createCorrectionObjectUrl(correctedBlob);
+      setCorrectedImages((items) => {
+        const next = items.map((item) => item.id === img.id
+          ? { ...item, corrected: correctedUrl, correctedBlob, status: 'completed', error: null }
+          : item);
+        setCorrectionComplete(next.length > 0 && next.every((item) => item.status === 'completed'));
+        return next;
+      });
       message.success(`${img.name} 矫正成功`);
     } catch (error) {
-      const errorMessage = error.response?.status === 422 
-        ? '没有检测到角点，矫正失败' 
+      const errorMessage = error.response?.status === 422
+        ? '没有检测到角点，矫正失败'
         : (error.message || '矫正失败');
-      
-      setCorrectedImages(prev => prev.map(item => 
-        item.id === img.id
-          ? { ...item, status: 'failed', error: errorMessage }
-          : item
-      ));
-      message.error(`${img.name} 重试失败: ${errorMessage}`);
+      setCorrectedImages((items) => items.map((item) => item.id === img.id
+        ? { ...item, status: 'failed', error: errorMessage }
+        : item));
+      message.error(`${img.name}: ${errorMessage}`);
     }
   };
 
@@ -626,8 +602,7 @@ const AnalysisCreatePage = () => {
 
     try {
       for (const img of completedImages) {
-        const response = await fetch(img.corrected);
-        const blob = await response.blob();
+        const blob = img.correctedBlob || await fetch(img.corrected).then((response) => response.blob());
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1076,16 +1051,29 @@ const AnalysisCreatePage = () => {
   const handleImageSelectForConfig = (image) => {
     setSelectedImageForConfig(image);
     setSelectedRegionForConfig(null);
-    // Load image for canvas
-    if (image) {
-      const img = new window.Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        step4ImgRef.current = img;
-      };
-      img.src = image.corrected;
-    }
   };
+
+  useEffect(() => {
+    setStep4LoadedImage(null);
+    if (!selectedImageForConfig?.id || !selectedImageForConfig?.corrected) {
+      setStep4ImageLoading(false);
+      return undefined;
+    }
+    setStep4ImageLoading(true);
+    return loadSelectedImage({
+      imageId: selectedImageForConfig.id,
+      src: selectedImageForConfig.corrected,
+      onLoad: (loaded) => {
+        setStep4LoadedImage(loaded);
+        setStep4ImageLoading(false);
+      },
+      onError: () => {
+        setStep4LoadedImage(null);
+        setStep4ImageLoading(false);
+        message.error('配置图片加载失败，请重新选择或重新执行图像矫正');
+      },
+    });
+  }, [selectedImageForConfig?.id, selectedImageForConfig?.corrected]);
 
   const toggleRegionForImage = (region) => {
     if (!selectedImageForConfig) return;
@@ -1181,11 +1169,15 @@ const AnalysisCreatePage = () => {
   // 步骤4 Canvas渲染 - 在图片上叠加显示区域
   const renderStep4Canvas = useCallback(() => {
     const canvas = step4CanvasRef.current;
-    const img = step4ImgRef.current;
-    if (!canvas || !img) return;
+    const img = resolveSelectedImage(step4LoadedImage, selectedImageForConfig);
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    if (!img) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
 
     // 设置canvas尺寸为图片尺寸（限制最大尺寸）
     const maxWidth = 400;
@@ -1227,7 +1219,7 @@ const AnalysisCreatePage = () => {
         }
       });
     }
-  }, [selectedImageForConfig, regions, imageAnalysisConfig, selectedRegionForConfig]);
+  }, [selectedImageForConfig, step4LoadedImage, regions, imageAnalysisConfig, selectedRegionForConfig]);
 
   useEffect(() => {
     renderStep4Canvas();
@@ -1584,8 +1576,10 @@ const AnalysisCreatePage = () => {
                         onClick={() => setPreviewCorrectedImage(img)}
                       />
                     ) : img.status === 'failed' && img.original ? (
-                      <img
-                        src={img.original}
+                      <AuthenticatedImage
+                        datasetId={img.datasetId}
+                        imageId={img.id}
+                        url={img.original}
                         alt={img.name}
                         style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: '8px 8px 0 0', opacity: 0.6 }}
                       />
@@ -1979,9 +1973,18 @@ const AnalysisCreatePage = () => {
             <Space direction="vertical" style={{ width: '100%' }} size="large">
               {/* 图片预览 - 带区域叠加 */}
               <div style={{ textAlign: 'center', padding: 20, background: colors.neutral, borderRadius: 12 }}>
+                {step4ImageLoading && (
+                  <div style={{ padding: 32 }}><Spin tip="正在加载当前图片" /></div>
+                )}
                 <canvas
                   ref={step4CanvasRef}
-                  style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, boxShadow: styles.shadow.md }}
+                  style={{
+                    display: step4ImageLoading || step4LoadedImage?.imageId !== selectedImageForConfig.id ? 'none' : 'inline-block',
+                    maxWidth: '100%',
+                    maxHeight: 220,
+                    borderRadius: 8,
+                    boxShadow: styles.shadow.md,
+                  }}
                 />
               </div>
 

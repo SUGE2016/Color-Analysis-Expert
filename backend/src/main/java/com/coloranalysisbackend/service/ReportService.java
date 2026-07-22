@@ -278,6 +278,9 @@ public class ReportService {
                 String line = row.entrySet().stream()
                         .map(e -> e.getKey() + "=" + e.getValue())
                         .collect(Collectors.joining(" | "));
+                // Standard Type 1 fonts use WinAnsi encoding. Keep PDF export
+                // available even when result values contain CJK region aliases.
+                line = toPdfSafeText(line);
                 if (line.length() > 160) {
                     line = line.substring(0, 160) + "...";
                 }
@@ -303,5 +306,12 @@ public class ReportService {
             document.save(output.toFile());
         }
         return output.toFile();
+    }
+
+    private String toPdfSafeText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[^\\x20-\\x7E]", "?");
     }
 }
