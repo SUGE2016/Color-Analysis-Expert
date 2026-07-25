@@ -13,8 +13,6 @@ import TableWrap from '../../components/table/TableWrap';
 import { buildActionColumn, TABLE_SCROLL_X } from '../../utils/tableColumns';
 
 const { Title, Text } = Typography;
-const SECTION_KEYS = ['mainColor', 'mainColorNumber', 'entropy', 'edgeColor'];
-
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -59,25 +57,9 @@ const GlobalSummaryReportPage = () => {
   }, [projectId]);
 
   const imageRows = useMemo(() => {
-    const rowsByImage = new Map();
-    const preview = report?.preview || {};
-    SECTION_KEYS.forEach((sectionKey) => {
-      const sectionRows = Array.isArray(preview[sectionKey]) ? preview[sectionKey] : [];
-      sectionRows.forEach((row) => {
-        const imageName = row?.image_name;
-        if (!imageName) return;
-        if (!rowsByImage.has(imageName)) {
-          rowsByImage.set(imageName, {
-            key: imageName, imageName, mainColor: 0,
-            mainColorNumber: 0, entropy: 0, edgeColor: 0,
-          });
-        }
-        rowsByImage.get(imageName)[sectionKey] += 1;
-      });
-    });
-    return Array.from(rowsByImage.values()).sort((a, b) =>
-      a.imageName.localeCompare(b.imageName, 'zh-CN')
-    );
+    const images = Array.isArray(report?.images) ? report.images : [];
+    return images.map((image) => ({ ...image, key: image.imageId }))
+      .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'zh-CN'));
   }, [report]);
 
   const handleExport = async () => {
@@ -94,17 +76,15 @@ const GlobalSummaryReportPage = () => {
   };
 
   const columns = [
-    { title: '图片名称', dataIndex: 'imageName', key: 'imageName', ellipsis: true },
-    { title: '主色行数', dataIndex: 'mainColor', key: 'mainColor', width: 110 },
-    { title: '主色数量行数', dataIndex: 'mainColorNumber', key: 'mainColorNumber', width: 130 },
-    { title: '熵值行数', dataIndex: 'entropy', key: 'entropy', width: 110 },
-    { title: '边缘颜色行数', dataIndex: 'edgeColor', key: 'edgeColor', width: 130 },
+    { title: '图片名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+    { title: '数据集 ID', dataIndex: 'datasetId', key: 'datasetId', ellipsis: true },
+    { title: '已分析区域', dataIndex: 'regionCount', key: 'regionCount', width: 120, render: (value) => `${value || 0} 个` },
     buildActionColumn({
       width: 108,
       actions: [{
         key: 'view', label: '详情', icon: <EyeOutlined />, pinned: true,
         onClick: (record) => navigate(
-          `/analysis/${projectId}/report/image/${encodeURIComponent(record.imageName)}`
+          `/analysis/${projectId}/report/image/${encodeURIComponent(record.imageId)}`
         ),
       }],
     }),
@@ -137,7 +117,7 @@ const GlobalSummaryReportPage = () => {
       </div>
 
       {error && (
-        <Alert type="error" showIcon message="无法加载报告" description={String(error)}
+        <Alert type="error" showIcon title="无法加载报告" description={String(error)}
           action={<Button icon={<ReloadOutlined />} onClick={loadReport}>重试</Button>}
           style={{ marginBottom: 24 }} />
       )}
@@ -150,7 +130,7 @@ const GlobalSummaryReportPage = () => {
                 <Col xs={24} sm={12} lg={6}><Statistic title="图片总数" value={stats.imageCount || 0} suffix="张" /></Col>
                 <Col xs={24} sm={12} lg={6}><Statistic title="主色数据" value={stats.mainColorRows || 0} suffix="行" /></Col>
                 <Col xs={24} sm={12} lg={6}><Statistic title="熵值数据" value={stats.entropyRows || 0} suffix="行" /></Col>
-                <Col xs={24} sm={12} lg={6}><Statistic title="边缘颜色数据" value={stats.edgeColorRows || 0} suffix="行" /></Col>
+                <Col xs={24} sm={12} lg={6}><Statistic title="主色数量数据" value={stats.mainColorNumberRows || 0} suffix="行" /></Col>
               </Row>
             </Card>
 
@@ -165,10 +145,10 @@ const GlobalSummaryReportPage = () => {
 
             <TableWrap>
               <Card title="图片结果预览">
-                <Table dataSource={imageRows} columns={columns} rowKey="imageName"
+                <Table dataSource={imageRows} columns={columns} rowKey="imageId"
                   scroll={{ x: TABLE_SCROLL_X }} pagination={{ pageSize: 10, showSizeChanger: false }}
                   locale={{ emptyText: <Empty description="报告预览中暂无图片数据" /> }} />
-                <Text type="secondary">此处展示接口返回的预览数据（每类最多 20 行）；完整数据请使用上方导出功能。</Text>
+                <Text type="secondary">此处列出最近一次成功任务中的全部已分析图片；未配置图片不会进入报告。</Text>
               </Card>
             </TableWrap>
           </>

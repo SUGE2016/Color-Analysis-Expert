@@ -97,6 +97,7 @@ def run_pipeline_api():
     steps = payload.get('steps', [])
     model_image_path = payload.get('modelImagePath')
     butterfly_json = payload.get('butterflyJsonPath')
+    analysis_plan = payload.get('analysisPlanPath')
     edge_json = payload.get('edgeJsonPath')
     cancel_file = payload.get('cancelFile')
 
@@ -131,10 +132,11 @@ def run_pipeline_api():
     hsv_input_dir = corrected_dir if os.path.exists(corrected_dir) and os.listdir(corrected_dir) else dataset_dir
 
     if 'hsv' in steps:
-        if not butterfly_json:
-            return jsonify({'error': 'butterflyJsonPath is required for hsv'}), 400
+        hsv_config = analysis_plan or butterfly_json
+        if not hsv_config:
+            return jsonify({'error': 'analysisPlanPath or butterflyJsonPath is required for hsv'}), 400
         hsv_csv = os.path.join(workspace_dir, 'all_hsv_results.csv')
-        all_hsv.process_images_HSV(butterfly_json, hsv_input_dir, hsv_csv)
+        all_hsv.process_images_HSV(hsv_config, hsv_input_dir, hsv_csv)
         output['files']['hsvCsv'] = hsv_csv
         if cancelled():
             return jsonify(output)

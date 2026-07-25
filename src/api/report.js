@@ -16,11 +16,27 @@ export const reportApi = {
   /**
    * 查询单图报告
    * @param {number|string} projectId - 项目ID
-   * @param {string} imageName - 图片名称
+   * @param {string} imageId - 图片稳定 ID（旧任务可兼容唯一图片名）
    * @returns {Promise} 单图报告数据
    */
-  getImageReport: (projectId, imageName) => {
-    return apiClient.get(`/reports/projects/${projectId}/images/${encodeURIComponent(imageName)}`);
+  getImageReport: (projectId, imageId) => {
+    return apiClient.get(`/reports/projects/${projectId}/images/${encodeURIComponent(imageId)}`);
+  },
+
+  getImageFile: (projectId, imageId, variant = 'corrected', options = {}) => {
+    return apiClient.get(`/reports/projects/${projectId}/images/${encodeURIComponent(imageId)}/file`, {
+      params: { variant },
+      responseType: 'blob',
+      signal: options.signal,
+      skipErrorToast: true,
+    });
+  },
+
+  exportImageReport: (projectId, imageId) => {
+    return apiClient.get(`/reports/projects/${projectId}/images/${encodeURIComponent(imageId)}/export`, {
+      params: { format: 'pdf' },
+      responseType: 'blob',
+    });
   },
 
   /**

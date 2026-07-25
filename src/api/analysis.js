@@ -14,7 +14,7 @@ export const analysisApi = {
       datasetIds: normalizedDatasetIds,
       templateId,
       config: config || {},
-    });
+    }, { skipErrorToast: true });
   },
 
   getProjectDetail: (projectId) => apiClient.get(`/projects/${projectId}`),
@@ -28,9 +28,20 @@ export const analysisApi = {
 
   deleteProject: (projectId) => apiClient.delete(`/projects/${projectId}`),
 
-  startAnalysis: (projectId, options = {}) => {
-    return apiClient.post(`/projects/${projectId}/run`, { steps: options.steps || [] });
-  },
+  startAnalysis: (projectId) => apiClient.post(`/projects/${projectId}/run`, {}),
+
+  correctImage: (projectId, imageId) => apiClient.post(
+    `/projects/${projectId}/corrections/${imageId}`,
+    {},
+    { responseType: 'blob' }
+  ),
+
+  getCorrections: (projectId) => apiClient.get(`/projects/${projectId}/corrections`),
+
+  getCorrectedImage: (projectId, imageId) => apiClient.get(
+    `/projects/${projectId}/corrections/${imageId}/file`,
+    { responseType: 'blob' }
+  ),
 
   stopAnalysis: (projectId) => apiClient.post(`/projects/${projectId}/stop`),
 

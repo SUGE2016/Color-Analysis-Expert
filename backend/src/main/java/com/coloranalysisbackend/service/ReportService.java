@@ -18,6 +18,8 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -49,13 +51,14 @@ public class ReportService {
         List<Map<String, String>> mainColorRows = readCsvSafe(files.get("mainColorCsv"));
         List<Map<String, String>> mainColorNumberRows = readCsvSafe(files.get("mainColorNumberCsv"));
         List<Map<String, String>> entropyRows = readCsvSafe(files.get("entropyCsv"));
-        List<Map<String, String>> edgeColorRows = readCsvSafe(files.get("edgeColorCsv"));
+        decorateImageIdentity(task, mainColorRows);
+        decorateImageIdentity(task, mainColorNumberRows);
+        decorateImageIdentity(task, entropyRows);
 
         Set<String> imageNames = new HashSet<>();
         imageNames.addAll(extractImageNames(mainColorRows));
         imageNames.addAll(extractImageNames(mainColorNumberRows));
         imageNames.addAll(extractImageNames(entropyRows));
-        imageNames.addAll(extractImageNames(edgeColorRows));
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("projectId", projectId);
@@ -68,14 +71,12 @@ public class ReportService {
         stats.put("mainColorRows", mainColorRows.size());
         stats.put("mainColorNumberRows", mainColorNumberRows.size());
         stats.put("entropyRows", entropyRows.size());
-        stats.put("edgeColorRows", edgeColorRows.size());
         summary.put("stats", stats);
 
         Map<String, Object> preview = new LinkedHashMap<>();
         preview.put("mainColor", mainColorRows.stream().limit(20).collect(Collectors.toList()));
         preview.put("mainColorNumber", mainColorNumberRows.stream().limit(20).collect(Collectors.toList()));
         preview.put("entropy", entropyRows.stream().limit(20).collect(Collectors.toList()));
-        preview.put("edgeColor", edgeColorRows.stream().limit(20).collect(Collectors.toList()));
         summary.put("preview", preview);
 
         return summary;
@@ -85,10 +86,18 @@ public class ReportService {
         Task task = getLatestSuccessTask(projectId);
         Map<String, String> files = extractFileMap(task.getResult());
 
-        List<Map<String, String>> mainColorRows = filterByImageName(readCsvSafe(files.get("mainColorCsv")), imageName);
-        List<Map<String, String>> mainColorNumberRows = filterByImageName(readCsvSafe(files.get("mainColorNumberCsv")), imageName);
-        List<Map<String, String>> entropyRows = filterByImageName(readCsvSafe(files.get("entropyCsv")), imageName);
-        List<Map<String, String>> edgeColorRows = filterByImageName(readCsvSafe(files.get("edgeColorCsv")), imageName);
+        List<Map<String, String>> mainColorRows = readCsvSafe(files.get("mainColorCsv"));
+        List<Map<String, String>> mainColorNumberRows = readCsvSafe(files.get("mainColorNumberCsv"));
+        List<Map<String, String>> entropyRows = readCsvSafe(files.get("entropyCsv"));
+        List<Map<String, String>> edgeColorRows = readCsvSafe(files.get("edgeColorCsv"));
+        decorateImageIdentity(task, mainColorRows);
+        decorateImageIdentity(task, mainColorNumberRows);
+        decorateImageIdentity(task, entropyRows);
+        decorateImageIdentity(task, edgeColorRows);
+        mainColorRows = filterByImageName(mainColorRows, imageName);
+        mainColorNumberRows = filterByImageName(mainColorNumberRows, imageName);
+        entropyRows = filterByImageName(entropyRows, imageName);
+        edgeColorRows = filterByImageName(edgeColorRows, imageName);
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("projectId", projectId);
@@ -125,7 +134,9 @@ public class ReportService {
 
     private Task getLatestSuccessTask(String projectId) {
         return taskRepository.findTopByProjectIdAndStatusOrderByCreatedAtDesc(projectId, "success")
-                .orElseThrow(() -> new IllegalArgumentException("no successful analysis task found for project"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "project has no successful analysis task"));
     }
 
     private Map<String, String> extractFileMap(String resultJson) {
@@ -189,6 +200,9 @@ public class ReportService {
         List<Map<String, String>> mainColorRows = readCsvSafe(files.get("mainColorCsv"));
         List<Map<String, String>> mainColorNumberRows = readCsvSafe(files.get("mainColorNumberCsv"));
         List<Map<String, String>> entropyRows = readCsvSafe(files.get("entropyCsv"));
+        decorateImageIdentity(task, mainColorRows);
+        decorateImageIdentity(task, mainColorNumberRows);
+        decorateImageIdentity(task, entropyRows);
 
         Map<String, Map<String, String>> merged = new LinkedHashMap<>();
 
@@ -211,6 +225,29 @@ public class ReportService {
         }
 
         return new ArrayList<>(merged.values());
+    }
+
+    private void decorateImageIdentity(Task task, List<Map<String, String>> rows) {
+        if (rows.isEmpty() || task.getResult() == null) return;
+        try {
+            JsonNode manifest = objectMapper.readTree(task.getResult()).path("imageManifest");
+            if (!manifest.isArray()) return;
+            Map<String, JsonNode> byStagedName = new HashMap<>();
+            manifest.forEach(item -> byStagedName.put(item.path("fileName").asText(), item));
+            for (Map<String, String> row : rows) {
+                JsonNode item = byStagedName.get(row.get("image_name"));
+                if (item == null) continue;
+                String imageId = item.path("imageId").asText();
+                String datasetId = item.path("datasetId").asText();
+                String original = item.path("originalFileName").asText(imageId);
+                row.put("image_id", imageId);
+                row.put("dataset_id", datasetId);
+                row.put("display_name", original);
+                row.put("image_name", original + " [" + datasetId + ":" + imageId + "]");
+            }
+        } catch (Exception ignored) {
+            // Historical tasks without a manifest remain readable with their original CSV names.
+        }
     }
 
     private String buildKey(Map<String, String> row) {

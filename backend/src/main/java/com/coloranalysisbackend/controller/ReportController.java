@@ -1,9 +1,12 @@
 package com.coloranalysisbackend.controller;
 
+import com.coloranalysisbackend.model.Project;
 import com.coloranalysisbackend.service.ReportService;
 import com.coloranalysisbackend.service.ProjectAnalysisService;
+import com.coloranalysisbackend.service.SingleImageReportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ContentDisposition;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -11,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 @RestController
@@ -19,10 +23,14 @@ import java.util.Map;
 public class ReportController {
     private final ReportService reportService;
     private final ProjectAnalysisService projectAnalysisService;
+    private final SingleImageReportService singleImageReportService;
 
-    public ReportController(ReportService reportService, ProjectAnalysisService projectAnalysisService) {
+    public ReportController(ReportService reportService,
+                            ProjectAnalysisService projectAnalysisService,
+                            SingleImageReportService singleImageReportService) {
         this.reportService = reportService;
         this.projectAnalysisService = projectAnalysisService;
+        this.singleImageReportService = singleImageReportService;
     }
 
     @GetMapping("/projects/{projectId}/summary")
@@ -31,23 +39,49 @@ public class ReportController {
         try {
             projectAnalysisService.getProject(projectId);
             Map<String, Object> summary = reportService.getProjectSummary(projectId);
+            summary.put("images", singleImageReportService.listImages(projectId));
             return ResponseEntity.ok(summary);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
-    @GetMapping("/projects/{projectId}/images/{imageName}")
+    @GetMapping("/projects/{projectId}/images/{imageId}")
     @Operation(summary = "查询单图明细报告")
     public ResponseEntity<?> singleImageReport(@PathVariable String projectId,
-                                               @PathVariable String imageName) {
-        try {
-            projectAnalysisService.getProject(projectId);
-            Map<String, Object> detail = reportService.getSingleImageReport(projectId, imageName);
-            return ResponseEntity.ok(detail);
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-        }
+                                               @PathVariable String imageId) {
+        Project project = projectAnalysisService.getProject(projectId);
+        return ResponseEntity.ok(singleImageReportService.getReport(project, imageId));
+    }
+
+    @GetMapping("/projects/{projectId}/images/{imageId}/file")
+    @Operation(summary = "读取单图报告图片快照")
+    public ResponseEntity<?> singleImageFile(@PathVariable String projectId,
+                                             @PathVariable String imageId,
+                                             @RequestParam(defaultValue = "corrected") String variant) {
+        Project project = projectAnalysisService.getProject(projectId);
+        SingleImageReportService.ReportFile file =
+                singleImageReportService.readImage(project, imageId, variant);
+        return ResponseEntity.ok()
+                .contentType(file.mediaType())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                        .filename(file.filename(), StandardCharsets.UTF_8).build().toString())
+                .body(new FileSystemResource(file.path()));
+    }
+
+    @GetMapping("/projects/{projectId}/images/{imageId}/export")
+    @Operation(summary = "导出单图 PDF 报告")
+    public ResponseEntity<?> exportSingleImage(@PathVariable String projectId,
+                                               @PathVariable String imageId,
+                                               @RequestParam(defaultValue = "pdf") String format) {
+        Project project = projectAnalysisService.getProject(projectId);
+        SingleImageReportService.ReportFile file =
+                singleImageReportService.exportPdf(project, imageId, format);
+        return ResponseEntity.ok()
+                .contentType(file.mediaType())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(file.filename(), StandardCharsets.UTF_8).build().toString())
+                .body(new FileSystemResource(file.path()));
     }
 
     @GetMapping("/projects/{projectId}/export")

@@ -245,8 +245,50 @@ def categorize_by_HSV(pixels, COLOR_CLUSTERS_HSV):
     return color_counts
 
 
+def _process_analysis_plan(json_data, images_folder, raw_hsv_csv):
+    """Process a per-image project plan using normalized polygon coordinates."""
+    records = []
+    for image_plan in json_data.get('images', []):
+        image_name = image_plan.get('fileName')
+        if not image_name:
+            raise ValueError('analysis plan image fileName is required')
+        image = cv2.imread(os.path.join(images_folder, image_name))
+        if image is None:
+            raise ValueError(f'Cannot load planned image: {image_name}')
+
+        height, width = image.shape[:2]
+        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        for region in image_plan.get('regions', []):
+            polygon = region.get('polygon') or []
+            if len(polygon) < 3:
+                raise ValueError(f"Invalid polygon for region {region.get('regionId')}")
+            points = np.array([
+                [
+                    int(round(float(point['x']) * max(width - 1, 1))),
+                    int(round(float(point['y']) * max(height - 1, 1)))
+                ]
+                for point in polygon
+            ], dtype=np.int32)
+            mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.fillPoly(mask, [points], 255)
+            masked_pixels = hsv_image[mask > 0]
+            if masked_pixels.shape[0] == 0:
+                continue
+            records.append({
+                'image_name': image_name,
+                'region_id': region.get('regionId'),
+                'region_alias': region.get('name') or region.get('regionId'),
+                'hsv_pixels': str(masked_pixels.tolist())
+            })
+
+    columns = ['image_name', 'region_id', 'region_alias', 'hsv_pixels']
+    pd.DataFrame(records, columns=columns).to_csv(raw_hsv_csv, index=False)
+
+
 def process_images_HSV(json_file, images_folder, raw_hsv_csv):
     json_data = load_json(json_file)
+    if isinstance(json_data.get('images'), list):
+        return _process_analysis_plan(json_data, images_folder, raw_hsv_csv)
     regions = get_regions_from_json(json_data)
     images = load_images_from_folder(images_folder)
 

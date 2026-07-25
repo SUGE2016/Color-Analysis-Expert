@@ -5,7 +5,6 @@ import com.coloranalysisbackend.model.Project;
 import com.coloranalysisbackend.model.Task;
 import com.coloranalysisbackend.model.Template;
 import com.coloranalysisbackend.repository.DatasetRepository;
-import com.coloranalysisbackend.repository.ImageRepository;
 import com.coloranalysisbackend.repository.ProjectRepository;
 import com.coloranalysisbackend.repository.TaskRepository;
 import com.coloranalysisbackend.repository.TemplateRepository;
@@ -23,7 +22,6 @@ import java.time.LocalDateTime;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,31 +33,34 @@ import java.util.UUID;
 public class ProjectAnalysisService {
     private final ProjectRepository projectRepository;
     private final DatasetRepository datasetRepository;
-    private final ImageRepository imageRepository;
     private final TemplateRepository templateRepository;
     private final TaskRepository taskRepository;
     private final ProjectTaskExecutor taskExecutor;
     private final ObjectMapper objectMapper;
     private final CurrentUserService currentUserService;
     private final Path storageBaseDir;
+    private final ProjectAnalysisPlanService analysisPlanService;
+    private final ProjectDraftStorage draftStorage;
 
     public ProjectAnalysisService(ProjectRepository projectRepository,
                                   DatasetRepository datasetRepository,
-                                  ImageRepository imageRepository,
                                   TemplateRepository templateRepository,
                                   TaskRepository taskRepository,
                                   ProjectTaskExecutor taskExecutor,
                                   ObjectMapper objectMapper,
                                   CurrentUserService currentUserService,
+                                  ProjectAnalysisPlanService analysisPlanService,
+                                  ProjectDraftStorage draftStorage,
                                   @Value("${storage.base-dir}") String storageBaseDir) {
         this.projectRepository = projectRepository;
         this.datasetRepository = datasetRepository;
-        this.imageRepository = imageRepository;
         this.templateRepository = templateRepository;
         this.taskRepository = taskRepository;
         this.taskExecutor = taskExecutor;
         this.objectMapper = objectMapper;
         this.currentUserService = currentUserService;
+        this.analysisPlanService = analysisPlanService;
+        this.draftStorage = draftStorage;
         this.storageBaseDir = Paths.get(storageBaseDir).toAbsolutePath().normalize();
     }
 
@@ -103,7 +104,7 @@ public class ProjectAnalysisService {
     }
 
     @Transactional
-    public Task runProject(String projectId, List<String> steps) {
+    public Task runProject(String projectId) {
         Project project = requireOwnedProject(projectId);
         if (project.getTemplateId() == null || project.getTemplateId().isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "template is required before running");
@@ -111,11 +112,7 @@ public class ProjectAnalysisService {
         if (project.getDatasetIds() == null || project.getDatasetIds().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "datasets are required before running");
         }
-        validateProjectRegions(project.getConfig());
-        long imageCount = project.getDatasetIds().stream().mapToLong(imageRepository::countByDatasetId).sum();
-        if (imageCount == 0) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "selected datasets contain no images");
-        }
+        Map<String, Object> analysisPlan = analysisPlanService.build(project);
         boolean active = taskRepository.findByProjectId(projectId).stream()
                 .anyMatch(t -> "queued".equals(t.getStatus()) || "running".equals(t.getStatus()));
         if (active) throw new ResponseStatusException(HttpStatus.CONFLICT, "project already has an active task");
@@ -128,7 +125,7 @@ public class ProjectAnalysisService {
         task.setProgress(0);
         task.setCurrentStep("queued");
         task.setCancelRequested(false);
-        task.setParams(toJson(Map.of("steps", steps == null ? List.of() : steps)));
+        task.setParams(toJson(Map.of("analysisPlan", analysisPlan)));
         taskRepository.save(task);
         project.setStatus("queued");
         projectRepository.save(project);
@@ -186,19 +183,23 @@ public class ProjectAnalysisService {
             }
             project.setName(name.trim());
         }
+        boolean draftInputsChanged = false;
         if (datasetIds != null) {
             Set<String> ids = normalizeDatasetIds(datasetIds, null);
             if (ids.isEmpty()) unprocessable("at least one datasetId is required");
             validateDatasets(ids, project.getOwnerId());
+            draftInputsChanged = !ids.equals(project.getDatasetIds());
             project.setDatasetIds(ids);
             project.setDatasetId(ids.iterator().next());
         }
         if (templateId != null) {
             Template template = requireTemplate(templateId);
+            draftInputsChanged = draftInputsChanged || !templateId.equals(project.getTemplateId());
             project.setTemplateId(templateId);
             project.setTemplateSnapshot(snapshotTemplate(template));
         }
         if (config != null) project.setConfig(toJson(config));
+        if (draftInputsChanged) draftStorage.clearDraft(projectId);
         project.setStatus("draft");
         return projectRepository.save(project);
     }
@@ -211,6 +212,7 @@ public class ProjectAnalysisService {
         }
         taskRepository.deleteAll(taskRepository.findByProjectId(projectId));
         projectRepository.delete(project);
+        draftStorage.clearProject(projectId);
     }
 
     public Task getOwnedTask(String taskId) {
@@ -303,10 +305,6 @@ public class ProjectAnalysisService {
         } catch (JsonProcessingException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "json serialize error");
         }
-    }
-
-    private void badRequest(String message) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 
     private void unprocessable(String message) {

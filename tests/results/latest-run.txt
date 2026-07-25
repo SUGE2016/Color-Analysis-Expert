@@ -1,17 +1,35 @@
-meta:
-  run_at: 2026-07-22T15:56:29+08:00
+﻿meta:
+  run_at: 2026-07-24T23:05:16+08:00
   environment: docker
   api_base: http://localhost:8080
   frontend_base: http://localhost:3000
-  script: targeted Jest + production build + in-app browser verification
-  git_commit: unknown (workspace metadata unavailable)
+  script: tests/scripts/run-v1-project-closure.ps1
+  git_commit: 06b422f
 
 summary:
-  pass: 1
+  pass: 19
   fail: 0
   skip: 0
   block: 0
-  total: 1
+  total: 19
 
 records:
-UI-14|PASS|selected-image loader 8/8 assertions passed (including null initial state); production build passed; New Analysis opened /analysis/create without null .image runtime error
+AUTH-01|PASS|admin token acquired
+DS-05|PASS|fixture uploaded as image ad60c3f2-39bd-4ba1-b7d3-1489c70defbe; response={"capturedAt":"2026-07-24T15:04:44.761573659","datasetId":"608838e0-32d6-4aec-b4c2-7ddc8b59c77f","fileName":"v1-fixture-1784905482.jpg","height":null,"id":"ad60c3f2-39bd-4ba1-b7d3-1489c70defbe","label":null,"md5":null,"storageKey":"/app/storage/608838e0-32d6-4aec-b4c2-7ddc8b59c77f/v1-fixture-1784905482.jpg","subjectCode":null,"width":null}
+TPL-01|PASS|image template created; response={"createdAt":null,"id":"274d2166-80f0-4e42-965b-96fcffeabf07","imageAvailable":true,"name":"v1-plan-template-1784905482","regionsJson":null,"templateImageKey":"templates/274d2166-80f0-4e42-965b-96fcffeabf07/v1-template-1784905482.jpg"}
+PRJ-01|PASS|draft 4a17959f-087e-47a7-b38e-e2af0c17650e created
+RPT-04|PASS|project without a successful Task returns 409
+PRJ-06|PASS|empty plan rejected with 422; tasks 0->0
+PRJ-11|PASS|server correction persisted and restored
+PRJ-19|PASS|legacy steps rejected with 422 and no Task
+PRJ-04|PASS|task=success, progress=100, project=completed
+PRJ-15|PASS|only configured image/region present with datasetId + imageId
+PRJ-22|PASS|analysis-plan.json exists and contains the project normalized polygon
+PRJ-16|PASS|boundary_check rejected without Task; three fixed CSV outputs non-empty; edgeColorCsv absent
+RPT-01|PASS|summary exposes the complete analyzed image list with stable identity
+RPT-02|PASS|single report joins three metrics and omits sample label and original-image URL
+RPT-05|PASS|corrected snapshot is readable; original snapshot and sample label are absent
+RPT-06|PASS|single PDF generated; csv rejected with 400; unconfigured image rejected with 404
+PRJ-20|PASS|project, tasks and project workspace removed
+RPT-07|PASS|Docker Maven SingleImageReportServiceTests: 3 tests, failures=0, errors=0
+UI-16|PASS|Five SVG regions are clickable and keyboard-selectable; selected outline, region ID and HSV metrics stay synchronized; original comparison and sample label are absent

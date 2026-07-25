@@ -17,6 +17,12 @@ import { colors, styles } from '../../components/common/constants';
 import { pointInPolygon } from '../../utils/hitTest';
 import { createTemporaryProjectId, isTemporaryProjectId } from '../../utils/incompleteProjects';
 import { loadSelectedImage, resolveSelectedImage } from '../../utils/selectedImageLoader';
+import { getProjectCreateErrorMessage } from '../../utils/projectCreateError';
+import {
+  findIncompleteSelection,
+  normalizeAnalysisConfigV1,
+  sanitizeAnalysisConfigV1,
+} from '../../utils/analysisConfigV1';
 
 // API imports
 import { datasetApi } from '../../api/dataset';
@@ -32,7 +38,7 @@ const { Title, Text } = Typography;
 // 分析方法类型
 const ANALYSIS_METHODS = [
   { key: 'color_distribution', label: '颜色分布分析', description: '统计指定区域内各颜色的占比', icon: <BgColorsOutlined />, color: '#1890ff' },
-  { key: 'boundary_check', label: '出界分析', description: '判断涂色是否超出预设边界', icon: <AimOutlined />, color: '#fa8c16' },
+  { key: 'boundary_check', label: '出界分析', description: 'V1.0 暂不支持', icon: <AimOutlined />, color: '#bfbfbf', disabled: true },
   { key: 'line_feature', label: '线条特征分析', description: 'V1.0暂不实现（如线条粗细、平滑度等）', icon: <EditOutlined />, color: '#bfbfbf', disabled: true },
 ];
 
@@ -73,6 +79,9 @@ const AnalysisCreatePage = () => {
   const [backendTemplates, setBackendTemplates] = useState([]);
   // eslint-disable-next-line no-unused-vars
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const initialDataFetchStartedRef = useRef(false);
+  const projectCreateInFlightRef = useRef(false);
+  const projectSubmitInFlightRef = useRef(false);
 
   // 获取数据集
   const fetchDatasets = useCallback(async () => {
@@ -124,6 +133,8 @@ const AnalysisCreatePage = () => {
 
   // 组件加载时获取数据
   useEffect(() => {
+    if (initialDataFetchStartedRef.current) return;
+    initialDataFetchStartedRef.current = true;
     fetchDatasets();
     fetchTemplates();
   }, [fetchDatasets, fetchTemplates]);
@@ -155,6 +166,33 @@ const AnalysisCreatePage = () => {
     correctionObjectUrlsRef.current.add(url);
     return url;
   }, []);
+
+  const restoreServerCorrections = useCallback(async (activeProjectId, datasets) => {
+    clearCorrectionObjectUrls();
+    const statuses = await analysisApi.getCorrections(activeProjectId);
+    const restored = await Promise.all((statuses || []).map(async (item) => {
+      const dataset = (datasets || []).find((entry) => entry.id === item.datasetId);
+      let corrected = null;
+      if (item.status === 'completed') {
+        const blob = await analysisApi.getCorrectedImage(activeProjectId, item.imageId);
+        corrected = createCorrectionObjectUrl(blob);
+      }
+      return {
+        id: item.imageId,
+        datasetId: item.datasetId,
+        name: item.fileName || item.imageId,
+        dataset: dataset?.name || item.datasetId,
+        original: datasetApi.imageFileUrl(item.datasetId, item.imageId),
+        corrected,
+        status: item.status,
+      };
+    }));
+    setCorrectedImages(restored);
+    const complete = restored.length > 0 && restored.every((item) => item.status === 'completed');
+    setCorrectionComplete(complete);
+    setCorrectionProgress(complete ? 100 : 0);
+    return restored;
+  }, [clearCorrectionObjectUrls, createCorrectionObjectUrl]);
 
   useEffect(() => () => clearCorrectionObjectUrls(), [clearCorrectionObjectUrls]);
 
@@ -224,12 +262,12 @@ const AnalysisCreatePage = () => {
   }, [createdProjectId, projectName, projectDescription, currentStep, selectedDatasets, selectedTemplateImage, correctionComplete, correctedImages, regions, imageAnalysisConfig]);
 
   const persistedConfig = useMemo(() => ({
+    analysisConfigVersion: 1,
     description: projectDescription,
     currentStep,
     correctionComplete,
     regions,
     imageAnalysisConfig,
-    edgeAnalysisEnabled: JSON.stringify(imageAnalysisConfig).includes('boundary_check'),
   }), [projectDescription, currentStep, correctionComplete, regions, imageAnalysisConfig]);
 
   // localStorage 只作为断网兜底；后端 draft 是项目配置的真实来源。
@@ -258,10 +296,16 @@ const AnalysisCreatePage = () => {
       setCurrentStep(project.currentStep || 0);
       setSelectedDatasets(project.selectedDatasets || []);
       setSelectedTemplateImage(project.selectedTemplateImage || null);
-      setCorrectionComplete(project.correctionComplete || false);
-      setCorrectedImages(project.correctedImages || []);
+      setCorrectionComplete(false);
+      setCorrectedImages([]);
       setRegions(project.regions || []);
-      setImageAnalysisConfig(project.imageAnalysisConfig || {});
+      const sanitized = sanitizeAnalysisConfigV1(
+        project.imageAnalysisConfig || {},
+        null,
+        (project.regions || []).map((region) => region.regionId)
+      );
+      setImageAnalysisConfig(sanitized.config);
+      if (sanitized.changed) message.info('旧草稿中的 V1.0 不支持分析项已自动移除');
       setIsRestored(true);
       message.success('已恢复之前保存的进度');
     }
@@ -275,26 +319,46 @@ const AnalysisCreatePage = () => {
       setIsRestored(true);
       return;
     }
-    analysisApi.getProjectDetail(projectId).then((project) => {
+    analysisApi.getProjectDetail(projectId).then(async (project) => {
       const config = typeof project.config === 'string' ? JSON.parse(project.config || '{}') : (project.config || {});
       const ids = project.datasetIds || (project.datasetId ? [project.datasetId] : []);
+      const datasets = ids.map((id) => backendDatasets.find((dataset) => dataset.id === id)).filter(Boolean);
+      const sanitized = sanitizeAnalysisConfigV1(
+        config.imageAnalysisConfig || {},
+        null,
+        (config.regions || []).map((region) => region.regionId)
+      );
       setProjectName(project.name || '');
       setProjectDescription(config.description || '');
       setCurrentStep(Math.min(config.currentStep || 0, totalSteps - 1));
-      setSelectedDatasets(ids.map((id) => backendDatasets.find((dataset) => dataset.id === id)).filter(Boolean));
+      setSelectedDatasets(datasets);
       setSelectedTemplateImage(templateImages.find((template) => template.id === project.templateId) || null);
-      setCorrectionComplete(Boolean(config.correctionComplete));
       setRegions(config.regions || []);
-      setImageAnalysisConfig(config.imageAnalysisConfig || {});
+      setImageAnalysisConfig(sanitized.config);
       setCreatedProjectId(project.id);
+      await restoreServerCorrections(project.id, datasets);
       setIsRestored(true);
+      if (sanitized.changed) {
+        message.info('旧草稿中的出界分析或未知方法已按 V1.0 自动移除');
+        await analysisApi.updateProject(project.id, {
+          name: project.name,
+          datasetIds: ids,
+          templateId: project.templateId,
+          config: {
+            ...config,
+            analysisConfigVersion: 1,
+            edgeAnalysisEnabled: undefined,
+            imageAnalysisConfig: sanitized.config,
+          },
+        });
+      }
       message.success('已从后端恢复项目草稿');
     }).catch(() => {
       loadProjectFromStorage(projectId);
       setIsRestored(true);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, isRestored, backendDatasets, templateImages]);
+  }, [projectId, isRestored, backendDatasets, templateImages, restoreServerCorrections]);
 
   // 定期自动保存（每30秒）
   useEffect(() => {
@@ -308,11 +372,13 @@ const AnalysisCreatePage = () => {
 
   const handleNext = async () => {
     if (currentStep === 0) {
+      if (projectCreateInFlightRef.current) return;
       if (!projectName.trim()) { message.warning('请输入项目名称'); return; }
       if (selectedDatasets.length === 0) { message.warning('请至少选择一个数据集'); return; }
       if (!selectedTemplateImage) { message.warning('请选择模板图片'); return; }
       
       // 步骤1: 创建项目并提交数据集和模板信息到后端
+      projectCreateInFlightRef.current = true;
       try {
         setLoading(true);
         
@@ -365,12 +431,18 @@ const AnalysisCreatePage = () => {
         }));
         
         setCorrectedImages(imagesForCorrection);
-        setLoading(false);
         
       } catch (error) {
-        setLoading(false);
-        message.error('项目创建失败');
+        const errorMessage = getProjectCreateErrorMessage(error);
+        if (error?.response?.status === 409) {
+          message.warning(errorMessage);
+        } else {
+          message.error(errorMessage);
+        }
         return;
+      } finally {
+        projectCreateInFlightRef.current = false;
+        setLoading(false);
       }
     }
     if (currentStep === 1) {
@@ -379,8 +451,18 @@ const AnalysisCreatePage = () => {
     }
     if (currentStep === 2 && regions.length === 0) { message.warning('请至少定义一个分析区域'); return; }
     if (currentStep === 3) {
-      const configuredCount = Object.keys(imageAnalysisConfig).length;
-      if (configuredCount === 0) { message.warning('请至少为一个图片配置分析项'); return; }
+      const incomplete = findIncompleteSelection(imageAnalysisConfig);
+      if (incomplete) {
+        setSelectedImageForConfig(correctedImages.find((image) => image.id === incomplete.imageId) || null);
+        setSelectedRegionForConfig(regions.find((region) => region.regionId === incomplete.regionId) || null);
+        message.warning('已选择的区域必须选择“颜色分布分析”方法');
+        return;
+      }
+      const normalized = normalizeAnalysisConfigV1(imageAnalysisConfig);
+      if (Object.keys(normalized).length === 0) {
+        message.warning('请至少为一张图片的一个区域配置颜色分布分析');
+        return;
+      }
     }
 
     if (currentStep < totalSteps - 1) {
@@ -408,6 +490,20 @@ const AnalysisCreatePage = () => {
   const handlePrev = () => { if (currentStep > 0) setCurrentStep(currentStep - 1); };
 
   const handleSubmit = async () => {
+    if (projectSubmitInFlightRef.current) return;
+    const incomplete = findIncompleteSelection(imageAnalysisConfig);
+    if (incomplete) {
+      setSelectedImageForConfig(correctedImages.find((image) => image.id === incomplete.imageId) || null);
+      setSelectedRegionForConfig(regions.find((region) => region.regionId === incomplete.regionId) || null);
+      message.warning('已选择的区域必须选择“颜色分布分析”方法');
+      return;
+    }
+    const normalizedConfig = normalizeAnalysisConfigV1(imageAnalysisConfig);
+    if (Object.keys(normalizedConfig).length === 0) {
+      message.warning('请至少为一张图片的一个区域配置颜色分布分析');
+      return;
+    }
+    projectSubmitInFlightRef.current = true;
     setLoading(true);
     
     try {
@@ -417,11 +513,14 @@ const AnalysisCreatePage = () => {
         name: projectName,
         datasetIds: selectedDatasets.map((dataset) => dataset.id),
         templateId: selectedTemplateImage.id,
-        config: { ...persistedConfig, currentStep: totalSteps },
+        config: {
+          ...persistedConfig,
+          analysisConfigVersion: 1,
+          currentStep: totalSteps,
+          imageAnalysisConfig: normalizedConfig,
+        },
       });
-      await analysisApi.startAnalysis(activeProjectId, {
-        steps: persistedConfig.edgeAnalysisEnabled ? ['edge_hsv', 'edge_color'] : [],
-      });
+      await analysisApi.startAnalysis(activeProjectId);
 
       // 提交成功后清除本地存储中的临时项目
       const savedProjects = JSON.parse(localStorage.getItem('incompleteAnalysisProjects') || '[]');
@@ -432,8 +531,14 @@ const AnalysisCreatePage = () => {
       message.success('分析项目创建成功，正在启动分析任务');
       navigate('/analysis');
     } catch (error) {
-      message.error('提交失败：' + (error.message || '未知错误'));
+      const serverMessage = error?.response?.data?.message
+        || error?.response?.data?.error
+        || error?.message
+        || '未知错误';
+      message.error('提交失败：' + serverMessage);
       setLoading(false);
+    } finally {
+      projectSubmitInFlightRef.current = false;
     }
   };
 
@@ -447,12 +552,30 @@ const AnalysisCreatePage = () => {
     } else {
       setSelectedDatasets([...selectedDatasets, datasetWithGroup]);
     }
+    clearCorrectionObjectUrls();
+    setCorrectedImages([]);
+    setCorrectionComplete(false);
+    setCorrectionProgress(0);
+    setImageAnalysisConfig({});
+    setSelectedImageForConfig(null);
+    setSelectedRegionForConfig(null);
   };
 
   const handleTemplateSelect = (template) => {
     if (!template.imageAvailable) {
       message.warning('该模板照片不存在，请重新上传模板照片后再使用');
       return;
+    }
+    if (template.id !== selectedTemplateImage?.id) {
+      clearCorrectionObjectUrls();
+      setCorrectedImages([]);
+      setCorrectionComplete(false);
+      setCorrectionProgress(0);
+      setRegions([]);
+      setSelectedRegion(null);
+      setImageAnalysisConfig({});
+      setSelectedImageForConfig(null);
+      setSelectedRegionForConfig(null);
     }
     setSelectedTemplateImage(template);
   };
@@ -475,20 +598,10 @@ const AnalysisCreatePage = () => {
 
   // ==================== 步骤2: 图像矫正 ====================
 
-  useEffect(() => {
-    if (currentStep === 1 && correctedImages.length === 0 && correctionComplete) {
-      // 校正结果是当前页面内的 Blob；刷新后需要重新执行，不能沿用失效的完成状态。
-      setCorrectionComplete(false);
-      setCorrectionProgress(0);
-    }
-  }, [currentStep, correctedImages.length, correctionComplete]);
-
-  const requestCorrectedImage = async (image, templateBlob) => {
-    const imageBlob = await datasetApi.getDatasetImageFile(image.datasetId, image.id);
-    const formData = new FormData();
-    formData.append('model', templateBlob, 'template.png');
-    formData.append('image', imageBlob, image.name || 'image.png');
-    const result = await toolApi.alignImage(formData);
+  const requestCorrectedImage = async (image) => {
+    const activeProjectId = createdProjectId || projectId;
+    if (!activeProjectId) throw new Error('项目草稿尚未创建');
+    const result = await analysisApi.correctImage(activeProjectId, image.id);
     const correctedBlob = result instanceof Blob ? result : new Blob([result], { type: 'image/png' });
     if (correctedBlob.size === 0) throw new Error('校正接口返回了空图片');
     return correctedBlob;
@@ -519,13 +632,12 @@ const AnalysisCreatePage = () => {
       }
 
       setCorrectedImages(images);
-      const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
       let failedCount = 0;
 
       for (let index = 0; index < images.length; index += 1) {
         const image = images[index];
         try {
-          const correctedBlob = await requestCorrectedImage(image, templateBlob);
+          const correctedBlob = await requestCorrectedImage(image);
           const correctedUrl = createCorrectionObjectUrl(correctedBlob);
           setCorrectedImages((items) => items.map((item) => item.id === image.id
             ? { ...item, corrected: correctedUrl, correctedBlob, status: 'completed', error: null }
@@ -563,8 +675,7 @@ const AnalysisCreatePage = () => {
       ? { ...item, status: 'pending', error: null }
       : item));
     try {
-      const templateBlob = await templateApi.getTemplateImage(selectedTemplateImage.id);
-      const correctedBlob = await requestCorrectedImage(img, templateBlob);
+      const correctedBlob = await requestCorrectedImage(img);
       const correctedUrl = createCorrectionObjectUrl(correctedBlob);
       setCorrectedImages((items) => {
         const next = items.map((item) => item.id === img.id
@@ -1043,6 +1154,12 @@ const AnalysisCreatePage = () => {
 
   const handleDeleteRegion = (regionId) => {
     setRegions(prev => prev.filter(r => r.regionId !== regionId));
+    setImageAnalysisConfig((previous) => Object.fromEntries(
+      Object.entries(previous).map(([imageId, imageConfig]) => [
+        imageId,
+        Object.fromEntries(Object.entries(imageConfig).filter(([id]) => id !== regionId)),
+      ])
+    ));
     if (selectedRegion?.regionId === regionId) setSelectedRegion(null);
   };
 
@@ -1093,6 +1210,10 @@ const AnalysisCreatePage = () => {
 
   const toggleMethodForRegion = (regionId, methodKey) => {
     if (!selectedImageForConfig) return;
+    if (methodKey !== 'color_distribution') {
+      message.info('该分析方法在 V1.0 暂不支持');
+      return;
+    }
 
     setImageAnalysisConfig(prev => {
       const currentConfig = prev[selectedImageForConfig.id] || {};

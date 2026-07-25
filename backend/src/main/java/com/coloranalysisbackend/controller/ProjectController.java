@@ -3,10 +3,12 @@ package com.coloranalysisbackend.controller;
 import com.coloranalysisbackend.model.Project;
 import com.coloranalysisbackend.model.Task;
 import com.coloranalysisbackend.service.ProjectAnalysisService;
+import com.coloranalysisbackend.service.ProjectCorrectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -18,9 +20,11 @@ import java.util.Map;
 @Tag(name = "项目分析", description = "项目草稿、异步分析与任务查询")
 public class ProjectController {
     private final ProjectAnalysisService service;
+    private final ProjectCorrectionService correctionService;
 
-    public ProjectController(ProjectAnalysisService service) {
+    public ProjectController(ProjectAnalysisService service, ProjectCorrectionService correctionService) {
         this.service = service;
+        this.correctionService = correctionService;
     }
 
     @PostMapping
@@ -45,9 +49,24 @@ public class ProjectController {
     @PostMapping("/{id}/run")
     @Operation(summary = "异步执行项目分析")
     public ResponseEntity<Task> run(@PathVariable String id, @RequestBody(required = false) RunProjectRequest req) {
-        rejectClientPaths(req);
-        Task task = service.runProject(id, req == null ? null : req.getSteps());
+        rejectLegacyRunBody(req);
+        Task task = service.runProject(id);
         return ResponseEntity.accepted().location(URI.create("/api/tasks/" + task.getId())).body(task);
+    }
+
+    @PostMapping(value = "/{id}/corrections/{imageId}", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> correct(@PathVariable String id, @PathVariable String imageId) {
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(correctionService.correct(id, imageId));
+    }
+
+    @GetMapping("/{id}/corrections")
+    public List<Map<String, Object>> corrections(@PathVariable String id) {
+        return correctionService.list(id);
+    }
+
+    @GetMapping(value = "/{id}/corrections/{imageId}/file", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> correctedFile(@PathVariable String id, @PathVariable String imageId) {
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(correctionService.read(id, imageId));
     }
 
     @PostMapping({"/{id}/stop", "/{id}/cancel"})
@@ -72,10 +91,12 @@ public class ProjectController {
         return ResponseEntity.noContent().build();
     }
 
-    private void rejectClientPaths(RunProjectRequest req) {
-        if (req != null && (req.getModelImagePath() != null || req.getButterflyJsonPath() != null || req.getEdgeJsonPath() != null)) {
+    private void rejectLegacyRunBody(RunProjectRequest req) {
+        if (req != null && (req.getSteps() != null || req.getModelImagePath() != null
+                || req.getButterflyJsonPath() != null || req.getEdgeJsonPath() != null)) {
             throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "client supplied server paths are forbidden");
+                    org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                    "run request body must be empty; pipeline steps and server paths are derived from project config");
         }
     }
 

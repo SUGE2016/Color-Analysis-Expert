@@ -1,13 +1,10 @@
 package com.coloranalysisbackend.service;
 
-import com.coloranalysisbackend.model.Image;
 import com.coloranalysisbackend.model.Project;
 import com.coloranalysisbackend.model.Task;
-import com.coloranalysisbackend.repository.ImageRepository;
 import com.coloranalysisbackend.repository.ProjectRepository;
 import com.coloranalysisbackend.repository.TaskRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
@@ -27,12 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class ProjectTaskExecutor {
-    private static final List<String> BASE_STEPS = List.of("correction", "hsv", "entropy", "main_color", "main_color_number");
     private static final List<String> BASE_OUTPUTS = List.of("mainColorCsv", "mainColorNumberCsv", "entropyCsv");
 
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
-    private final ImageRepository imageRepository;
     private final PythonClientService pythonClientService;
     private final ObjectMapper objectMapper;
     private final Path storageBaseDir;
@@ -40,13 +35,11 @@ public class ProjectTaskExecutor {
 
     public ProjectTaskExecutor(ProjectRepository projectRepository,
                                TaskRepository taskRepository,
-                               ImageRepository imageRepository,
                                PythonClientService pythonClientService,
                                ObjectMapper objectMapper,
                                @Value("${storage.base-dir}") String storageBaseDir) {
         this.projectRepository = projectRepository;
         this.taskRepository = taskRepository;
-        this.imageRepository = imageRepository;
         this.pythonClientService = pythonClientService;
         this.objectMapper = objectMapper;
         this.storageBaseDir = Paths.get(storageBaseDir).toAbsolutePath().normalize();
@@ -83,12 +76,12 @@ public class ProjectTaskExecutor {
             Path workspace = storageBaseDir.resolve("projects").resolve(project.getId()).resolve(task.getId());
             Path input = workspace.resolve("input");
             Files.createDirectories(input);
-            stageImages(project, input);
 
             Map<String, Object> params = readMap(task.getParams());
-            List<String> steps = canonicalSteps(params.get("steps"), project.getConfig());
-            boolean edgeEnabled = steps.contains("edge_color");
-            Map<String, String> templateFiles = writeTemplateFiles(project, workspace, edgeEnabled);
+            Map<String, Object> analysisPlan = requireAnalysisPlan(params);
+            stageImages(project, analysisPlan, input);
+            Path analysisPlanFile = workspace.resolve("analysis-plan.json");
+            objectMapper.writeValue(analysisPlanFile.toFile(), analysisPlan);
 
             task = refresh(taskId);
             if (Boolean.TRUE.equals(task.getCancelRequested())) {
@@ -104,20 +97,19 @@ public class ProjectTaskExecutor {
             payload.put("datasetDir", input.toString());
             payload.put("workspaceDir", workspace.toString());
             payload.put("cancelFile", workspace.resolve("cancel.requested").toString());
-            payload.put("steps", steps);
-            payload.put("modelImagePath", templateFiles.get("model"));
-            payload.put("butterflyJsonPath", templateFiles.get("regions"));
-            if (edgeEnabled) payload.put("edgeJsonPath", templateFiles.get("edge"));
+            payload.put("steps", ProjectAnalysisPlanService.PIPELINE_STEPS);
+            payload.put("analysisPlanPath", analysisPlanFile.toString());
 
             Map<String, Object> result = pythonClientService.runPipeline(payload);
             task = refresh(taskId);
+            result.put("imageManifest", buildImageManifest(analysisPlan));
             task.setResult(toJson(result));
             if (Boolean.TRUE.equals(task.getCancelRequested())) {
                 finishCancelled(project, task, "cancelled while pipeline was running; diagnostic files retained");
                 return;
             }
 
-            validateOutputs(result, edgeEnabled);
+            validateOutputs(result);
             task.setStatus("success");
             task.setProgress(100);
             task.setCurrentStep("completed");
@@ -144,66 +136,59 @@ public class ProjectTaskExecutor {
         return taskId != null && activeTaskIds.contains(taskId);
     }
 
-    private void stageImages(Project project, Path input) throws Exception {
-        int count = 0;
-        for (String datasetId : project.getDatasetIds()) {
-            for (Image image : imageRepository.findByDatasetId(datasetId)) {
-                if (image.getStorageKey() == null) continue;
-                Path source = Paths.get(image.getStorageKey()).toAbsolutePath().normalize();
-                if (!Files.isRegularFile(source)) continue;
-                String original = image.getFileName() == null ? "image" : image.getFileName().replaceAll("[^a-zA-Z0-9._-]", "_");
-                Files.copy(source, input.resolve(datasetId + "__" + image.getId() + "__" + original), StandardCopyOption.REPLACE_EXISTING);
-                count++;
+    private void stageImages(Project project, Map<String, Object> analysisPlan,
+                             Path input) throws Exception {
+        Object rawImages = analysisPlan.get("images");
+        if (!(rawImages instanceof List<?> images) || images.isEmpty()) {
+            throw new IllegalStateException("task analysis plan contains no images");
+        }
+        for (Object rawImage : images) {
+            if (!(rawImage instanceof Map<?, ?> imagePlan)) {
+                throw new IllegalStateException("task analysis plan image entry is invalid");
             }
+            String imageId = String.valueOf(imagePlan.get("imageId"));
+            String fileName = String.valueOf(imagePlan.get("fileName"));
+            Path source = storageBaseDir.resolve("projects").resolve(project.getId())
+                    .resolve("draft").resolve("corrected").resolve(imageId + ".png").normalize();
+            if (!Files.isRegularFile(source)) {
+                throw new IllegalStateException("corrected image is missing: " + imageId);
+            }
+            Files.copy(source, input.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
         }
-        if (count == 0) throw new IllegalStateException("selected datasets contain no readable images");
-    }
-
-    private Map<String, String> writeTemplateFiles(Project project, Path workspace, boolean edgeEnabled) throws Exception {
-        JsonNode snapshot = objectMapper.readTree(project.getTemplateSnapshot());
-        String imageKey = snapshot.path("templateImageKey").asText(null);
-        if (imageKey == null) throw new IllegalStateException("template image is required");
-        Path model = Paths.get(imageKey);
-        if (!model.isAbsolute()) model = storageBaseDir.resolve(model);
-        model = model.normalize();
-        if (!Files.isRegularFile(model)) throw new IllegalStateException("template image is unavailable");
-
-        JsonNode config = objectMapper.readTree(project.getConfig());
-        JsonNode regions = config == null ? null : config.get("regions");
-        if (regions == null || !regions.isArray() || regions.isEmpty()) {
-            throw new IllegalStateException("project analysis regions are required");
-        }
-        JsonNode regionDocument = objectMapper.createObjectNode().set("regions", regions);
-        Path regionsFile = workspace.resolve("template-regions.json");
-        objectMapper.writeValue(regionsFile.toFile(), regionDocument);
-
-        Map<String, String> files = new LinkedHashMap<>();
-        files.put("model", model.toString());
-        files.put("regions", regionsFile.toString());
-        if (edgeEnabled) {
-            Path edgeFile = workspace.resolve("template-edge-regions.json");
-            objectMapper.writeValue(edgeFile.toFile(), regionDocument);
-            files.put("edge", edgeFile.toString());
-        }
-        return files;
-    }
-
-    private List<String> canonicalSteps(Object requested, String configJson) {
-        List<String> result = new ArrayList<>(BASE_STEPS);
-        Map<String, Object> config = readMap(configJson);
-        boolean edge = Boolean.TRUE.equals(config.get("edgeAnalysisEnabled"));
-        if (requested instanceof List<?> list && (list.contains("edge_hsv") || list.contains("edge_color"))) edge = true;
-        if (edge) result.addAll(List.of("edge_hsv", "edge_color"));
-        return result;
     }
 
     @SuppressWarnings("unchecked")
-    private void validateOutputs(Map<String, Object> result, boolean edgeEnabled) {
+    private Map<String, Object> requireAnalysisPlan(Map<String, Object> params) {
+        Object raw = params.get("analysisPlan");
+        if (!(raw instanceof Map<?, ?>)) {
+            throw new IllegalStateException("task analysis plan is missing");
+        }
+        return (Map<String, Object>) raw;
+    }
+
+    private List<Map<String, Object>> buildImageManifest(Map<String, Object> analysisPlan) {
+        List<Map<String, Object>> manifest = new ArrayList<>();
+        Object rawImages = analysisPlan.get("images");
+        if (!(rawImages instanceof List<?> images)) return manifest;
+        for (Object rawImage : images) {
+            if (!(rawImage instanceof Map<?, ?> image)) continue;
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("imageId", image.get("imageId"));
+            item.put("datasetId", image.get("datasetId"));
+            item.put("originalFileName", image.get("originalFileName"));
+            item.put("fileName", image.get("fileName"));
+            item.put("subjectCode", image.get("subjectCode"));
+            item.put("capturedAt", image.get("capturedAt"));
+            item.put("regions", image.get("regions"));
+            manifest.add(item);
+        }
+        return manifest;
+    }
+
+    private void validateOutputs(Map<String, Object> result) {
         Object rawFiles = result == null ? null : result.get("files");
         if (!(rawFiles instanceof Map<?, ?> files)) throw new IllegalStateException("pipeline returned no files");
-        List<String> required = new ArrayList<>(BASE_OUTPUTS);
-        if (edgeEnabled) required.add("edgeColorCsv");
-        for (String key : required) {
+        for (String key : BASE_OUTPUTS) {
             Object value = files.get(key);
             if (!(value instanceof String path) || !Files.isRegularFile(Paths.get(path)) || fileSize(path) == 0) {
                 throw new IllegalStateException("required output missing: " + key);

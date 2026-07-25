@@ -113,6 +113,7 @@ public class TaskController {
         response.put("status", task.getStatus());
         response.put("progress", task.getProgress());
         response.put("currentStep", task.getCurrentStep());
+        response.put("params", task.getParams());
         response.put("result", task.getResult());
         response.put("logs", task.getLogs());
         response.put("createdAt", task.getCreatedAt());

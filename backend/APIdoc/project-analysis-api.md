@@ -6,7 +6,9 @@
 - 项目 owner 始终取自 JWT，客户端传入的 `ownerId` 会被忽略。
 - 项目支持多个 `datasetIds`，且 `templateId` 必填。
 - 创建后为 `draft`；向导每一步通过 `PUT` 持续保存配置。
-- `/run` 为异步接口，只接受分析步骤，不接受任何服务器文件路径。
+- 第二步矫正结果持久化在项目草稿工作区，刷新后可恢复，最终任务复用同一文件。
+- `/run` 为异步接口，请求体为空；分析步骤由项目配置推导，不接受客户端步骤或服务器文件路径。
+- V1.0 唯一可执行方法为 `color_distribution`，固定产出熵值、主色、主色数量；出界与面积分析不执行。
 - 涂色面积分析不在本期范围内。
 
 ## 2. 状态机
@@ -29,7 +31,9 @@ Task 同时返回 `progress`、`currentStep`、`startedAt`、`finishedAt`、`log
   "config": {
     "description": "示例",
     "currentStep": 0,
-    "edgeAnalysisEnabled": false
+    "analysisConfigVersion": 1,
+    "regions": [],
+    "imageAnalysisConfig": {}
   }
 }
 ```
@@ -48,38 +52,45 @@ Task 同时返回 `progress`、`currentStep`、`startedAt`、`finishedAt`、`log
   "config": {
     "currentStep": 3,
     "regions": [],
-    "imageAnalysisConfig": {},
-    "edgeAnalysisEnabled": false
+    "analysisConfigVersion": 1,
+    "imageAnalysisConfig": {
+      "image-uuid": {
+        "region-1": ["color_distribution"]
+      }
+    }
   }
 }
 ```
 
 仅 owner 可更新。`queued` 或 `running` 项目不可编辑，返回 409。
 
-## 5. 异步运行
+## 5. 项目级同步矫正
+
+- `POST /api/projects/{projectId}/corrections/{imageId}`：根据项目模板和图片同步矫正，保存后返回 `image/png`。
+- `GET /api/projects/{projectId}/corrections`：列出项目图片的矫正状态与预览地址。
+- `GET /api/projects/{projectId}/corrections/{imageId}/file`：读取已保存的矫正图片。
+
+客户端只传项目 ID 和图片 ID。后端校验 owner、图片属于已选数据集、模板快照和文件均可读。结果保存到 `projects/{projectId}/draft/corrected/{imageId}.png`；数据集或模板变化以及项目删除时清理。
+
+## 6. 异步运行
 
 `POST /api/projects/{projectId}/run`
 
-```json
-{
-  "steps": ["edge_hsv", "edge_color"]
-}
-```
+请求体为空或 `{}`。
 
-后端固定执行基础步骤 `correction`、`hsv`、`entropy`、`main_color`、`main_color_number`；启用出界/边缘分析时追加 `edge_hsv`、`edge_color`。模板图片由项目模板快照推导，区域定义仅来自项目步骤 3 持久化的 `config.regions`；数据集输入目录和任务工作区均由后端推导。`config.regions` 为空或格式无效时，`/run` 在创建 Task 前返回 422。
+后端从 `config.imageAnalysisConfig` 规范化出实际图片/区域执行清单，只处理配置了 `color_distribution` 的图片和区域，并固定执行 `hsv`、`entropy`、`main_color`、`main_color_number`。Task `params.analysisPlan` 保存不可变快照。区域只来自步骤 3 的 `config.regions`；缺少区域、方法、矫正文件，或出现 `boundary_check`/未知方法时，在创建 Task 前返回 422。
 
-成功受理返回 HTTP 202 和 Task（同时提供 `id` 与 `taskId`），并通过 `Location: /api/tasks/{taskId}` 指向查询接口。空数据集返回 422，且不会创建 Task。存在活动 Task 时重复运行返回 409。请求包含 `modelImagePath`、`butterflyJsonPath` 或 `edgeJsonPath` 时返回 400。
+成功受理返回 HTTP 202 和 Task，并通过 `Location: /api/tasks/{taskId}` 指向查询接口。存在活动 Task 时重复运行返回 409。请求包含 `steps`、`modelImagePath`、`butterflyJsonPath` 或 `edgeJsonPath` 时返回 422。
 
 成功任务必须产生非空的：
 
 - `mainColorCsv`
 - `mainColorNumberCsv`
 - `entropyCsv`
-- `edgeColorCsv`（仅启用边缘/出界分析时必需）
 
 缺少必需输出会把 Task 和 Project 标记为 `failed`。
 
-## 6. 查询与取消
+## 7. 查询与取消
 
 - `GET /api/projects`：只返回当前用户项目。
 - `GET /api/projects/{id}`：项目详情及模板快照。
